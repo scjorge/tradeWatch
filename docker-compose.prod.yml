@@ -1,0 +1,195 @@
+# TradeWatch — produção, usando as imagens publicadas no Docker Hub (scripts/build-push.sh).
+#
+# No servidor (precisa só deste arquivo, do .env e da pasta secrets/):
+#   cp .env.production.example .env        # ajuste IMAGE_NAMESPACE, IMAGE_TAG, PUBLIC_HOST, SMTP...
+#   ./scripts/generate-secrets.sh          # ou crie os arquivos de secrets/ manualmente
+#   docker network create traefik          # uma vez; rede compartilhada com o Traefik
+#   docker compose -f docker-compose.prod.yml --profile traefik up -d   # inclui um Traefik com Let's Encrypt
+#   docker compose -f docker-compose.prod.yml up -d                     # se você já tem um Traefik rodando
+#
+# Atualizar para uma nova versão: altere IMAGE_TAG no .env e rode
+#   docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+name: tradewatch
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-backend-env: &backend-env
+  APP_ENV: production
+  APP_BASE_URL: https://${PUBLIC_HOST:?defina PUBLIC_HOST no .env}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  POSTGRES_HOST: db
+  POSTGRES_DB: tradewatch
+  POSTGRES_USER: tradewatch
+  POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+  CREDENTIALS_KEYS_FILE: /run/secrets/credentials_keys
+  CREDENTIALS_ACTIVE_KEY_VERSION: ${CREDENTIALS_ACTIVE_KEY_VERSION:-}
+  COOKIE_SECURE: "true"
+  REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-true}
+  SMTP_HOST: ${SMTP_HOST:?defina SMTP_HOST no .env}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+  SMTP_FROM: ${SMTP_FROM:?defina SMTP_FROM no .env}
+  SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+  BINANCE_BASE_URL: ${BINANCE_BASE_URL:-https://api.binance.com}
+  SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-15}
+
+x-backend-image: &backend-image ${IMAGE_NAMESPACE:?defina IMAGE_NAMESPACE no .env}/tradewatch-backend:${IMAGE_TAG:-latest}
+
+x-hardening: &hardening
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tradewatch
+      POSTGRES_USER: tradewatch
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradewatch -d tradewatch"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+    shm_size: 256mb
+    logging: *logging
+
+  migrate:
+    image: *backend-image
+    command: ["sh", "-c", "alembic upgrade head && python -m app.cli seed"]
+    environment: *backend-env
+    secrets: [postgres_password, credentials_keys, smtp_password]
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [internal]
+    restart: "no"
+    <<: *hardening
+    logging: *logging
+
+  api:
+    image: *backend-image
+    restart: unless-stopped
+    environment: *backend-env
+    secrets: [postgres_password, credentials_keys, smtp_password]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [internal, egress]
+    <<: *hardening
+    logging: *logging
+
+  worker:
+    image: *backend-image
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker.main"]
+    environment: *backend-env
+    secrets: [postgres_password, credentials_keys, smtp_password]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [internal, egress]
+    healthcheck:
+      disable: true
+    <<: *hardening
+    logging: *logging
+
+  web:
+    image: ${IMAGE_NAMESPACE}/tradewatch-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on: [api]
+    networks: [internal, traefik]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${TRAEFIK_NETWORK:-traefik}
+      traefik.http.routers.tradewatch.rule: Host(`${PUBLIC_HOST}`)
+      traefik.http.routers.tradewatch.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.tradewatch.tls: "true"
+      traefik.http.routers.tradewatch.tls.certresolver: ${TRAEFIK_CERTRESOLVER:-le}
+      traefik.http.routers.tradewatch.middlewares: tradewatch-headers
+      traefik.http.middlewares.tradewatch-headers.headers.stsSeconds: "31536000"
+      traefik.http.middlewares.tradewatch-headers.headers.stsIncludeSubdomains: "true"
+      traefik.http.middlewares.tradewatch-headers.headers.stsPreload: "true"
+      traefik.http.services.tradewatch.loadbalancer.server.port: "8080"
+
+  backup:
+    image: ${IMAGE_NAMESPACE}/tradewatch-backup:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: ["backup.sh", "loop"]
+    environment:
+      PGHOST: db
+      PGDATABASE: tradewatch
+      PGUSER: tradewatch
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    secrets: [postgres_password, backup_passphrase]
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [internal]
+    logging: *logging
+
+  # ---- Traefik opcional (use --profile traefik se o servidor ainda não tiver um proxy reverso)
+  traefik:
+    image: traefik:v3.2
+    profiles: [traefik]
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=${TRAEFIK_NETWORK:-traefik}
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:-}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --log.level=WARN
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks: [traefik]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  credentials_keys:
+    file: ./secrets/credentials_keys
+  smtp_password:
+    file: ./secrets/smtp_password
+  backup_passphrase:
+    file: ./secrets/backup_passphrase
+
+volumes:
+  pgdata:
+  letsencrypt:
+
+networks:
+  # Sem saída para a internet: banco, migração e backup.
+  internal:
+    internal: true
+  # API e worker precisam de saída (Binance, Telegram, SMTP).
+  egress: {}
+  # Rede compartilhada com o Traefik (crie uma vez: docker network create traefik).
+  traefik:
+    name: ${TRAEFIK_NETWORK:-traefik}
+    external: true

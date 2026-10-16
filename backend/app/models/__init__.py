@@ -1,0 +1,36 @@
+from app.models.core import (  # noqa: F401
+    AuditLog,
+    EncryptedCredential,
+    Module,
+    Permission,
+    Role,
+    User,
+    UserModuleSetting,
+    UserSession,
+    UserToken,
+    WorkerHeartbeat,
+    role_permissions,
+    user_roles,
+)
+from app.models.notifications import (  # noqa: F401
+    NotificationChannel,
+    NotificationEvent,
+    NotificationPreference,
+)
+from app.models.trades import (  # noqa: F401
+    AssetMovement,
+    AssetPrice,
+    Balance,
+    BalanceSnapshot,
+    ConnectionStatus,
+    CycleStatus,
+    ExchangeConnection,
+    ExchangeOrder,
+    ExchangeProvider,
+    Position,
+    RealizedPnlRecord,
+    SyncCheckpoint,
+    SyncJob,
+    TradeCycle,
+    TradeExecution,
+)

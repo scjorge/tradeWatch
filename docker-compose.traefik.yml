@@ -1,0 +1,21 @@
+# Exemplo de publicação atrás do Traefik (HTTPS obrigatório em produção).
+# Uso: docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d
+# Pré-requisito: uma rede externa "traefik" onde o Traefik está conectado, com um certresolver "le".
+services:
+  web:
+    ports: !reset []
+    networks: [internal, egress, traefik]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik
+      traefik.http.routers.tradewatch.rule: Host(`${PUBLIC_HOST}`)
+      traefik.http.routers.tradewatch.entrypoints: websecure
+      traefik.http.routers.tradewatch.tls.certresolver: le
+      traefik.http.services.tradewatch.loadbalancer.server.port: "8080"
+      traefik.http.middlewares.tradewatch-hsts.headers.stsSeconds: "31536000"
+      traefik.http.middlewares.tradewatch-hsts.headers.stsIncludeSubdomains: "true"
+      traefik.http.routers.tradewatch.middlewares: tradewatch-hsts
+
+networks:
+  traefik:
+    external: true

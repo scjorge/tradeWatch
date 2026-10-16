@@ -1,0 +1,163 @@
+# TradeWatch — instalação completa com Docker Compose.
+# Antes do primeiro "up": ./scripts/generate-secrets.sh  e  cp .env.example .env
+name: tradewatch
+
+x-backend-env: &backend-env
+  APP_ENV: ${APP_ENV:-production}
+  APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  POSTGRES_HOST: db
+  POSTGRES_DB: tradewatch
+  POSTGRES_USER: tradewatch
+  POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+  CREDENTIALS_KEYS_FILE: /run/secrets/credentials_keys
+  CREDENTIALS_ACTIVE_KEY_VERSION: ${CREDENTIALS_ACTIVE_KEY_VERSION:-}
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
+  REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
+  SMTP_HOST: ${SMTP_HOST:-mailpit}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+  SMTP_FROM: ${SMTP_FROM:-TradeWatch <no-reply@tradewatch.local>}
+  SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+  BINANCE_BASE_URL: ${BINANCE_BASE_URL:-https://api.binance.com}
+  SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-15}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tradewatch
+      POSTGRES_USER: tradewatch
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradewatch -d tradewatch"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [internal]
+
+  migrate:
+    build: { context: ./backend, target: runtime }
+    image: tradewatch-backend:latest
+    command: ["sh", "-c", "alembic upgrade head && python -m app.cli seed"]
+    environment: *backend-env
+    secrets: [postgres_password, credentials_keys, smtp_password]
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [internal]
+    restart: "no"
+
+  api:
+    image: tradewatch-backend:latest
+    restart: unless-stopped
+    environment: *backend-env
+    secrets: [postgres_password, credentials_keys, smtp_password]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [internal, egress]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+
+  worker:
+    image: tradewatch-backend:latest
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker.main"]
+    environment: *backend-env
+    secrets: [postgres_password, credentials_keys, smtp_password]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [internal, egress]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      disable: true
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    depends_on: [api]
+    networks: [internal, egress]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      # Compatível com Traefik: veja docker-compose.traefik.yml
+      traefik.enable: "false"
+
+  # Captura de e-mails para desenvolvimento (UI em http://localhost:8025).
+  # Em produção, configure SMTP_* no .env e remova/ignore este serviço.
+  mailpit:
+    image: axllent/mailpit:v1.21
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
+    networks: [internal, egress]
+
+  backup:
+    build: ./scripts/backup
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGDATABASE: tradewatch
+      PGUSER: tradewatch
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    secrets: [postgres_password, backup_passphrase]
+    volumes:
+      - ./backups:/backups
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [internal]
+    command: ["backup.sh", "loop"]
+
+  # ---- testes: docker compose --profile test run --rm tests
+  db-test:
+    image: postgres:16-alpine
+    profiles: [test]
+    environment:
+      POSTGRES_DB: tradewatch_test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d tradewatch_test"]
+      interval: 2s
+      retries: 30
+    networks: [internal]
+
+  tests:
+    build: { context: ./backend, target: test }
+    profiles: [test]
+    environment:
+      TEST_DATABASE_URL: postgresql+psycopg://test:test@db-test:5432/tradewatch_test
+    depends_on:
+      db-test: { condition: service_healthy }
+    networks: [internal]
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  credentials_keys:
+    file: ./secrets/credentials_keys
+  smtp_password:
+    file: ./secrets/smtp_password
+  backup_passphrase:
+    file: ./secrets/backup_passphrase
+
+volumes:
+  pgdata:
+
+networks:
+  # Rede sem saída para a internet: banco, migração e backup.
+  internal:
+    internal: true
+  # API, worker e web precisam de saída (Binance, Telegram, SMTP).
+  egress: {}
