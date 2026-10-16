@@ -1,20 +1,14 @@
 """Configuração da aplicação.
 
-Segredos podem ser fornecidos diretamente por variável de ambiente ou, de forma
-preferencial, por arquivo (Docker secrets): para qualquer campo marcado em
-``_SECRET_FIELDS`` a variável ``<NOME>_FILE`` aponta para o arquivo com o valor.
+Tudo vem de variáveis de ambiente, inclusive os segredos (POSTGRES_PASSWORD,
+CREDENTIALS_KEYS, SMTP_PASSWORD).
 """
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
-from pathlib import Path
 
-from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-_SECRET_FIELDS = ("postgres_password", "smtp_password", "credentials_keys")
 
 
 class Settings(BaseSettings):
@@ -47,7 +41,7 @@ class Settings(BaseSettings):
     login_lockout_minutes: int = 15
     rate_limit_auth_per_minute: int = 20
 
-    # Cofre de credenciais. Formato: uma chave por linha "<versão>:<base64 de 32 bytes>".
+    # Cofre de credenciais. Formato: "<versão>:<base64 de 32 bytes>", várias separadas por vírgula.
     credentials_keys: str | None = None
     credentials_active_key_version: int | None = None
 
@@ -70,18 +64,6 @@ class Settings(BaseSettings):
     job_max_attempts: int = 5
     job_stale_minutes: int = 15
     failure_alert_threshold: int = 3
-
-    @model_validator(mode="before")
-    @classmethod
-    def _load_secret_files(cls, data: dict) -> dict:
-        data = dict(data or {})
-        for field in _SECRET_FIELDS:
-            file_var = os.environ.get(f"{field.upper()}_FILE")
-            if file_var and not data.get(field) and not os.environ.get(field.upper()):
-                path = Path(file_var)
-                if path.is_file():
-                    data[field] = path.read_text().strip()
-        return data
 
     @property
     def is_production(self) -> bool:

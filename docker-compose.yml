@@ -1,5 +1,5 @@
 # TradeWatch — instalação completa com Docker Compose.
-# Antes do primeiro "up": ./scripts/generate-secrets.sh  e  cp .env.example .env
+# Antes do primeiro "up": cp .env.example .env  e  ./scripts/generate-secrets.sh (grava os segredos no .env)
 name: tradewatch
 
 x-backend-env: &backend-env
@@ -10,15 +10,15 @@ x-backend-env: &backend-env
   POSTGRES_HOST: db
   POSTGRES_DB: tradewatch
   POSTGRES_USER: tradewatch
-  POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
-  CREDENTIALS_KEYS_FILE: /run/secrets/credentials_keys
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+  CREDENTIALS_KEYS: ${CREDENTIALS_KEYS:?defina CREDENTIALS_KEYS no .env}
   CREDENTIALS_ACTIVE_KEY_VERSION: ${CREDENTIALS_ACTIVE_KEY_VERSION:-}
   COOKIE_SECURE: ${COOKIE_SECURE:-true}
   REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
   SMTP_HOST: ${SMTP_HOST:-mailpit}
   SMTP_PORT: ${SMTP_PORT:-1025}
   SMTP_USER: ${SMTP_USER:-}
-  SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   SMTP_FROM: ${SMTP_FROM:-TradeWatch <no-reply@tradewatch.local>}
   SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
   BINANCE_BASE_URL: ${BINANCE_BASE_URL:-https://api.binance.com}
@@ -31,8 +31,7 @@ services:
     environment:
       POSTGRES_DB: tradewatch
       POSTGRES_USER: tradewatch
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
-    secrets: [postgres_password]
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -47,7 +46,6 @@ services:
     image: tradewatch-backend:latest
     command: ["sh", "-c", "alembic upgrade head && python -m app.cli seed"]
     environment: *backend-env
-    secrets: [postgres_password, credentials_keys, smtp_password]
     depends_on:
       db: { condition: service_healthy }
     networks: [internal]
@@ -57,7 +55,6 @@ services:
     image: tradewatch-backend:latest
     restart: unless-stopped
     environment: *backend-env
-    secrets: [postgres_password, credentials_keys, smtp_password]
     depends_on:
       migrate: { condition: service_completed_successfully }
     networks: [internal, egress]
@@ -70,7 +67,6 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "app.worker.main"]
     environment: *backend-env
-    secrets: [postgres_password, credentials_keys, smtp_password]
     depends_on:
       migrate: { condition: service_completed_successfully }
     networks: [internal, egress]
@@ -108,9 +104,10 @@ services:
       PGHOST: db
       PGDATABASE: tradewatch
       PGUSER: tradewatch
+      PGPASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:?defina BACKUP_PASSPHRASE no .env}
       BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
-    secrets: [postgres_password, backup_passphrase]
     volumes:
       - ./backups:/backups
     depends_on:
@@ -141,16 +138,6 @@ services:
     depends_on:
       db-test: { condition: service_healthy }
     networks: [internal]
-
-secrets:
-  postgres_password:
-    file: ./secrets/postgres_password
-  credentials_keys:
-    file: ./secrets/credentials_keys
-  smtp_password:
-    file: ./secrets/smtp_password
-  backup_passphrase:
-    file: ./secrets/backup_passphrase
 
 volumes:
   pgdata:

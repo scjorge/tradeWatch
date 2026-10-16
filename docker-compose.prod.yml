@@ -1,8 +1,8 @@
 # TradeWatch — produção, usando as imagens publicadas no Docker Hub (scripts/build-push.sh).
 #
-# No servidor (precisa só deste arquivo, do .env e da pasta secrets/):
+# No servidor (precisa só deste arquivo e do .env):
 #   cp .env.production.example .env        # ajuste IMAGE_NAMESPACE, IMAGE_TAG, PUBLIC_HOST, SMTP...
-#   ./scripts/generate-secrets.sh          # ou crie os arquivos de secrets/ manualmente
+#   ./scripts/generate-secrets.sh          # grava os segredos no .env (ou preencha-os à mão)
 #   docker network create traefik          # uma vez; rede compartilhada com o Traefik
 #   docker compose -f docker-compose.prod.yml --profile traefik up -d   # inclui um Traefik com Let's Encrypt
 #   docker compose -f docker-compose.prod.yml up -d                     # se você já tem um Traefik rodando
@@ -25,15 +25,15 @@ x-backend-env: &backend-env
   POSTGRES_HOST: db
   POSTGRES_DB: tradewatch
   POSTGRES_USER: tradewatch
-  POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
-  CREDENTIALS_KEYS_FILE: /run/secrets/credentials_keys
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+  CREDENTIALS_KEYS: ${CREDENTIALS_KEYS:?defina CREDENTIALS_KEYS no .env}
   CREDENTIALS_ACTIVE_KEY_VERSION: ${CREDENTIALS_ACTIVE_KEY_VERSION:-}
   COOKIE_SECURE: "true"
   REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-true}
   SMTP_HOST: ${SMTP_HOST:?defina SMTP_HOST no .env}
   SMTP_PORT: ${SMTP_PORT:-587}
   SMTP_USER: ${SMTP_USER:-}
-  SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   SMTP_FROM: ${SMTP_FROM:?defina SMTP_FROM no .env}
   SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
   BINANCE_BASE_URL: ${BINANCE_BASE_URL:-https://api.binance.com}
@@ -54,8 +54,7 @@ services:
     environment:
       POSTGRES_DB: tradewatch
       POSTGRES_USER: tradewatch
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
-    secrets: [postgres_password]
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -71,7 +70,6 @@ services:
     image: *backend-image
     command: ["sh", "-c", "alembic upgrade head && python -m app.cli seed"]
     environment: *backend-env
-    secrets: [postgres_password, credentials_keys, smtp_password]
     depends_on:
       db: { condition: service_healthy }
     networks: [internal]
@@ -83,7 +81,6 @@ services:
     image: *backend-image
     restart: unless-stopped
     environment: *backend-env
-    secrets: [postgres_password, credentials_keys, smtp_password]
     depends_on:
       migrate: { condition: service_completed_successfully }
     networks: [internal, egress]
@@ -95,7 +92,6 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "app.worker.main"]
     environment: *backend-env
-    secrets: [postgres_password, credentials_keys, smtp_password]
     depends_on:
       migrate: { condition: service_completed_successfully }
     networks: [internal, egress]
@@ -132,9 +128,10 @@ services:
       PGHOST: db
       PGDATABASE: tradewatch
       PGUSER: tradewatch
+      PGPASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:?defina BACKUP_PASSPHRASE no .env}
       BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
-    secrets: [postgres_password, backup_passphrase]
     volumes:
       - ${BACKUP_DIR:-./backups}:/backups
     depends_on:
@@ -168,16 +165,6 @@ services:
     networks: [traefik]
     security_opt: ["no-new-privileges:true"]
     logging: *logging
-
-secrets:
-  postgres_password:
-    file: ./secrets/postgres_password
-  credentials_keys:
-    file: ./secrets/credentials_keys
-  smtp_password:
-    file: ./secrets/smtp_password
-  backup_passphrase:
-    file: ./secrets/backup_passphrase
 
 volumes:
   pgdata:

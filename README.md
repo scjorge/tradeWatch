@@ -22,12 +22,16 @@ Arquitetura, contratos entre módulos, modelo de dados, decisões de segurança 
 Requisitos: Docker 24+ com Compose v2.24+, `openssl`.
 
 ```bash
-./scripts/generate-secrets.sh
+cp .env.example .env
 ```
 
 ```bash
-cp .env.example .env
+./scripts/generate-secrets.sh
 ```
+
+Os segredos (`POSTGRES_PASSWORD`, `CREDENTIALS_KEYS`, `BACKUP_PASSPHRASE`, `SMTP_PASSWORD`) ficam só em variáveis
+de ambiente, no próprio `.env`. O script preenche os que estiverem vazios e deixa o arquivo com permissão 600.
+Se você vinha da versão com a pasta `secrets/`, ele importa os valores de lá; depois de conferir, a pasta pode ser apagada.
 
 Para testar localmente em `http://localhost`, edite o `.env` e defina `APP_ENV=development`
 (e `COOKIE_SECURE=false` se usar Safari).
@@ -121,7 +125,7 @@ Logs são JSON estruturados (`docker compose logs -f api worker`), sem segredos.
 ### Backups
 
 O serviço `backup` gera `./backups/tradewatch-<data>.dump.gpg` a cada `BACKUP_INTERVAL_HOURS`
-(padrão 24 h), cifrado com AES-256 usando `secrets/backup_passphrase`, mantendo `BACKUP_RETENTION_DAYS`.
+(padrão 24 h), cifrado com AES-256 usando `BACKUP_PASSPHRASE`, mantendo `BACKUP_RETENTION_DAYS`.
 
 Backup imediato:
 
@@ -149,7 +153,7 @@ docker compose run --rm backup restore.sh /backups/tradewatch-AAAAMMDDTHHMMSSZ.d
 docker compose start api worker
 ```
 
-> Guarde `secrets/credentials_keys` e `secrets/backup_passphrase` **fora** do servidor (gerenciador de senhas).
+> Guarde `CREDENTIALS_KEYS` e `BACKUP_PASSPHRASE` **fora** do servidor (gerenciador de senhas).
 > Sem a chave do cofre, as credenciais cifradas no banco restaurado não podem ser lidas.
 
 ### Rotação da chave do cofre
@@ -158,7 +162,7 @@ docker compose start api worker
 ./scripts/rotate-credentials-key.sh
 ```
 
-Adiciona uma nova versão em `secrets/credentials_keys`, reinicia `api`/`worker` e recifra todas as credenciais.
+Adiciona uma nova versão em `CREDENTIALS_KEYS` no `.env`, reinicia `api`/`worker` e recifra todas as credenciais.
 
 ### Publicar as imagens no Docker Hub
 
@@ -176,15 +180,15 @@ e `--no-latest` não atualiza a tag `latest`.
 
 ### Implantar em produção (`docker-compose.prod.yml`)
 
-No servidor você precisa só destes arquivos: `docker-compose.prod.yml`, `.env.production.example` e
-`scripts/generate-secrets.sh`.
+No servidor você precisa só destes arquivos: `docker-compose.prod.yml`, `.env.production.example`,
+`scripts/generate-secrets.sh` e `scripts/env-lib.sh`.
 
 ```bash
 cp .env.production.example .env
 ```
 
 Edite o `.env`: `IMAGE_NAMESPACE` (seu usuário do Docker Hub), `IMAGE_TAG`, `PUBLIC_HOST` (domínio),
-`ACME_EMAIL` e o SMTP. Depois gere os segredos, grave a senha do SMTP em `secrets/smtp_password` e crie a
+`ACME_EMAIL` e o SMTP (com a senha em `SMTP_PASSWORD`). Depois gere os demais segredos e crie a
 rede do proxy (apenas na primeira vez):
 
 ```bash
@@ -252,7 +256,7 @@ cd backend && python -m venv .venv && .venv/bin/pip install -r requirements-dev.
 cd backend && TEST_DATABASE_URL=postgresql+psycopg://user:senha@localhost/tradewatch_test .venv/bin/pytest
 ```
 
-A suíte (71 testes) cobre cadastro/autenticação, CSRF, bloqueio por tentativas, sessões, isolamento
+A suíte (75 testes) cobre cadastro/autenticação, CSRF, bloqueio por tentativas, sessões, isolamento
 entre usuários, cofre (AAD e rotação), redação de logs, idempotência e retomada da sincronização,
 limites de requisição, motor de P&L (FIFO, custo médio, taxas, depósitos, transferências, conversões), operações compra → venda (FIFO, valores em BRL, filtros e resumo por período),
 adaptador Binance com HTTP simulado, Telegram e migrações. **Nenhuma chave real é necessária.**

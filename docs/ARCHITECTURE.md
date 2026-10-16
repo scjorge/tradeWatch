@@ -42,10 +42,10 @@ contratos entre módulos, modelo de dados, decisões de segurança, metodologia 
 tradeWatch/
 ├── docker-compose.yml            # db, migrate, api, worker, web, mailpit, backup (+ perfil test)
 ├── docker-compose.traefik.yml    # exemplo de publicação HTTPS via Traefik
-├── .env.example                  # configuração não sensível
-├── secrets/                      # Docker secrets (não versionado)
+├── .env.example                  # configuração e segredos (o .env real não é versionado)
 ├── scripts/
-│   ├── generate-secrets.sh
+│   ├── generate-secrets.sh       # preenche os segredos no .env
+│   ├── env-lib.sh
 │   ├── rotate-credentials-key.sh
 │   └── backup/ (Dockerfile, backup.sh, restore.sh, verify-restore.sh)
 ├── docs/ARCHITECTURE.md
@@ -179,14 +179,14 @@ sempre filtram por `user_id` do usuário autenticado e respondem 404 para recurs
 | CSRF | double-submit: cookie `tw_csrf` (`SameSite=Strict`) ecoado em `X-CSRF-Token` e comparado ao hash da sessão; middleware rejeita `Content-Type` de formulário e `Origin` diferente em produção |
 | Força bruta | rate limit por IP e por e-mail nas rotas de autenticação; bloqueio da conta após 5 falhas por 15 min (no banco, vale para várias réplicas) |
 | Enumeração | cadastro, reenvio e recuperação respondem igual para e-mails existentes ou não |
-| Credenciais | AES-256-GCM (`cryptography`), nonce aleatório de 96 bits, **AAD = tipo + id do dono + id do usuário** (um ciphertext copiado para outro registro não decifra), chave mestra fora do banco (Docker secret), versionamento e rotação (`app.cli rotate-keys`) |
+| Credenciais | AES-256-GCM (`cryptography`), nonce aleatório de 96 bits, **AAD = tipo + id do dono + id do usuário** (um ciphertext copiado para outro registro não decifra), chave mestra fora do banco (variável de ambiente `CREDENTIALS_KEYS`), versionamento e rotação (`app.cli rotate-keys`) |
 | Acesso aos segredos | apenas `core/credentials.py` decifra; chamado somente na validação, no worker de sincronização e na entrega de notificações. Nenhuma rota retorna segredo; admin não tem rota para isso |
 | Corretora | só chaves **somente leitura**: a validação consulta `apiRestrictions` e recusa chaves com saque, negociação, transferência, margem ou futuros; recomenda restrição por IP |
 | Telegram | token cifrado; destino só é aceito quando o usuário envia um código de verificação (comparado por hash) no próprio chat/grupo |
 | Logs | JSON estruturado com redação automática (tokens de bot, `signature=`, `apikey`, cabeçalhos, strings de 64 caracteres) e chaves sensíveis; `httpx` silenciado (a URL do Telegram contém o token) |
 | Erros | respostas sem stack trace; código de incidente para correlação; mensagens de integrações sanitizadas antes de ir ao banco |
 | Frontend | CSP restritiva no nginx, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`; tokens de e-mail no fragmento `#t=` (não chegam a logs de servidor) |
-| Containers | usuário não root, `read_only`, `no-new-privileges`, segredos via `/run/secrets`, rede interna sem internet |
+| Containers | usuário não root, `read_only`, `no-new-privileges`, segredos via variáveis de ambiente (`.env` com permissão 600), rede interna sem internet |
 | Backups | `pg_dump` cifrado com GPG AES-256; script de teste de restauração; as chaves do cofre ficam fora do backup do banco |
 
 ## 6. Metodologia de apuração (P&L)

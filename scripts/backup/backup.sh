@@ -2,9 +2,7 @@
 # Backup cifrado do PostgreSQL: pg_dump (formato custom) | gpg --symmetric AES256.
 # Uso: backup.sh once | loop
 set -eu
-PGPASSWORD="$(cat /run/secrets/postgres_password)"
-export PGPASSWORD
-PASS=/run/secrets/backup_passphrase
+: "${PGPASSWORD:?defina PGPASSWORD}" "${BACKUP_PASSPHRASE:?defina BACKUP_PASSPHRASE}"
 DIR=/backups
 INTERVAL_H="${BACKUP_INTERVAL_HOURS:-24}"
 RETENTION_D="${BACKUP_RETENTION_DAYS:-14}"
@@ -14,7 +12,9 @@ run_once() {
   out="$DIR/tradewatch-$ts.dump.gpg"
   tmp="$out.partial"
   pg_dump -Fc --no-owner --no-privileges | gpg --batch --yes --quiet --symmetric --cipher-algo AES256 \
-    --passphrase-file "$PASS" -o "$tmp"
+    --pinentry-mode loopback --passphrase-fd 3 -o "$tmp" 3<<EOF
+$BACKUP_PASSPHRASE
+EOF
   mv "$tmp" "$out"
   echo "{\"event\":\"backup_created\",\"file\":\"$(basename "$out")\",\"bytes\":$(wc -c < "$out")}"
   find "$DIR" -name 'tradewatch-*.dump.gpg' -mtime +"$RETENTION_D" -print -delete | sed 's/^/{"event":"backup_pruned","file":"/; s/$/"}/'

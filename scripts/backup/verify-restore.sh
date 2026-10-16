@@ -2,8 +2,7 @@
 # Teste de restauração: restaura o backup em um banco temporário, valida e remove o banco.
 # Uso: verify-restore.sh [/backups/arquivo.dump.gpg]   (padrão: o mais recente)
 set -eu
-PGPASSWORD="$(cat /run/secrets/postgres_password)"
-export PGPASSWORD
+: "${PGPASSWORD:?defina PGPASSWORD}" "${BACKUP_PASSPHRASE:?defina BACKUP_PASSPHRASE}"
 # shellcheck disable=SC2012 # nomes gerados pelo próprio backup.sh, sem espaços
 file="${1:-$(ls -1t /backups/tradewatch-*.dump.gpg | head -1)}"
 check_db="tradewatch_restore_check_$$"
@@ -11,8 +10,9 @@ cleanup() { dropdb --if-exists "$check_db" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 createdb "$check_db"
-gpg --batch --quiet --decrypt --passphrase-file /run/secrets/backup_passphrase "$file" \
-  | pg_restore --no-owner --no-privileges -d "$check_db"
+gpg --batch --quiet --decrypt --pinentry-mode loopback --passphrase-fd 3 "$file" 3<<EOF | pg_restore --no-owner --no-privileges -d "$check_db"
+$BACKUP_PASSPHRASE
+EOF
 
 q() { psql -d "$check_db" -tAc "$1"; }
 version=$(q "select version_num from alembic_version")

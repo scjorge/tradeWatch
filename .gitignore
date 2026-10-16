@@ -1,6 +1,6 @@
 .env
-secrets/*
-!secrets/README.md
+# pasta legada de Docker secrets: continua ignorada até ser apagada
+secrets/
 backups/
 .DS_Store
 __pycache__/

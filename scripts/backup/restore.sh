@@ -4,8 +4,8 @@
 set -eu
 file="$1"
 target="${2:-$PGDATABASE}"
-PGPASSWORD="$(cat /run/secrets/postgres_password)"
-export PGPASSWORD
-gpg --batch --quiet --decrypt --passphrase-file /run/secrets/backup_passphrase "$file" \
-  | pg_restore --clean --if-exists --no-owner --no-privileges -d "$target"
+: "${PGPASSWORD:?defina PGPASSWORD}" "${BACKUP_PASSPHRASE:?defina BACKUP_PASSPHRASE}"
+gpg --batch --quiet --decrypt --pinentry-mode loopback --passphrase-fd 3 "$file" 3<<EOF | pg_restore --clean --if-exists --no-owner --no-privileges -d "$target"
+$BACKUP_PASSPHRASE
+EOF
 echo "Restaurado em $target a partir de $(basename "$file")."

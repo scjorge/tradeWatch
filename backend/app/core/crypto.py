@@ -47,7 +47,7 @@ def parse_keys(raw: str | None) -> dict[int, bytes]:
 class CredentialVault:
     def __init__(self, keys: dict[int, bytes], active_version: int | None = None):
         if not keys:
-            raise VaultError("Nenhuma chave de criptografia configurada (CREDENTIALS_KEYS_FILE).")
+            raise VaultError("Nenhuma chave de criptografia configurada (CREDENTIALS_KEYS).")
         self._keys = keys
         self.active_version = active_version or max(keys)
         if self.active_version not in keys:
