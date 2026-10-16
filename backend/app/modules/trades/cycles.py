@@ -13,6 +13,9 @@ uma linha:
 
 Câmbio = cotação histórica do minuto de cada execução. Sem câmbio ou sem compra
 correspondente, a linha fica marcada como incompleta e sem lucro calculado.
+
+Os campos ``*_brl`` guardam o valor na moeda de referência do usuário (BRL por
+padrão, ou USDT quando ele escolhe dólar); o nome foi mantido por compatibilidade.
 """
 
 from __future__ import annotations
@@ -99,55 +102,57 @@ class Cycle:
     extra: dict = field(default_factory=dict)
 
 
-def _fx(ex: Exec, quote: str, brl: BrlFn) -> Decimal | None:
-    if quote == BRL:
+def _fx(ex: Exec, quote: str, brl: BrlFn, ref: str = BRL) -> Decimal | None:
+    if quote == ref:
         return Decimal(1)
     return brl(quote, ex.at)
 
 
-def _value_brl(asset: str | None, qty: Decimal, ex: Exec, brl: BrlFn) -> Decimal | None:
+def _value_brl(asset: str | None, qty: Decimal, ex: Exec, brl: BrlFn, ref: str = BRL) -> Decimal | None:
     if not qty:
         return ZERO
     if asset is None:
         return None
-    if asset == BRL:
+    if asset == ref:
         return qty
     if asset == ex.quote:
-        fx = _fx(ex, ex.quote, brl)
+        fx = _fx(ex, ex.quote, brl, ref)
         return None if fx is None else qty * fx
     if asset == ex.base:
-        fx = _fx(ex, ex.quote, brl)
+        fx = _fx(ex, ex.quote, brl, ref)
         return None if fx is None else qty * ex.price * fx
     p = brl(asset, ex.at)
     return None if p is None else qty * p
 
 
-def build_cycles(execs: list[Exec], brl: BrlFn) -> list[Cycle]:
+def build_cycles(execs: list[Exec], brl: BrlFn, currency: str = BRL) -> list[Cycle]:
+    """``brl(ativo, instante)`` devolve a cotação do ativo na moeda de referência ``currency``."""
     lots: dict[str, deque[_Lot]] = defaultdict(deque)
     out: list[Cycle] = []
+    ref = currency
 
     for ex in sorted(execs, key=lambda e: (e.at, 0 if e.side == "BUY" else 1)):
         if ex.quantity <= 0:
             continue
         fee = ex.fee or ZERO
         if ex.side == "BUY":
-            fx = _fx(ex, ex.quote, brl)
+            fx = _fx(ex, ex.quote, brl, ref)
             gross = ex.quantity
             net = gross - fee if ex.fee_asset == ex.base else gross
             cost_quote = gross * ex.price + (fee if ex.fee_asset == ex.quote else ZERO)
             cost_brl = None if fx is None else cost_quote * fx
             if cost_brl is not None and fee and ex.fee_asset not in (ex.base, ex.quote):
-                fee_brl = _value_brl(ex.fee_asset, fee, ex, brl)
+                fee_brl = _value_brl(ex.fee_asset, fee, ex, brl, ref)
                 cost_brl = None if fee_brl is None else cost_brl + fee_brl
-            fee_brl = _value_brl(ex.fee_asset, fee, ex, brl) if fee else ZERO
+            fee_brl = _value_brl(ex.fee_asset, fee, ex, brl, ref) if fee else ZERO
             lots[ex.base].append(_Lot(ex, gross, net, net, fee, ex.fee_asset, fx, cost_brl, cost_quote, fee_brl))
             continue
 
         # Venda: consome lotes FIFO do ativo.
         sold = ex.quantity + (fee if ex.fee_asset == ex.base else ZERO)
-        sell_fx = _fx(ex, ex.quote, brl)
+        sell_fx = _fx(ex, ex.quote, brl, ref)
         proceeds_quote = ex.quantity * ex.price - (fee if ex.fee_asset == ex.quote else ZERO)
-        sell_fee_brl = _value_brl(ex.fee_asset, fee, ex, brl) if fee else ZERO
+        sell_fee_brl = _value_brl(ex.fee_asset, fee, ex, brl, ref) if fee else ZERO
         proceeds_brl = None if sell_fx is None else proceeds_quote * sell_fx
         if proceeds_brl is not None and fee and ex.fee_asset not in (ex.base, ex.quote):
             proceeds_brl = None if sell_fee_brl is None else proceeds_brl - sell_fee_brl

@@ -124,6 +124,7 @@ def test_pnl_after_sync_and_dashboard(make_user, db):
         fakes.ex(2, "SELL", "0.5", "60000", fee="30"),
     ]
     api, state, cid = _setup(make_user, db, execs)
+    assert api.patch("/api/me", json={"base_currency": "USDT"}).status_code == 200  # valores abaixo em dólar
     state.movements = [MovementDTO("deposit", "d1", "USDT", Decimal("50000"), Decimal(0), "TRX", "tx1", "completed", fakes.T0 - timedelta(days=1))]
     _run_all(db)
     s = api.get("/api/trades/pnl/summary").json()

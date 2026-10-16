@@ -287,6 +287,10 @@ export interface CycleRow {
   holding_days: number | null;
   estimated: boolean;
   price_source: string | null;
+  /** Somente na versão consolidada. */
+  parts?: number;
+  buy_executions?: number;
+  sell_executions?: number;
 }
 
 export interface CyclePeriod {

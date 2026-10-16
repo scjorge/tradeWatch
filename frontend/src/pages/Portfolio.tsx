@@ -6,6 +6,7 @@ import { useState } from "react";
 import { api, qs } from "../api/client";
 import type { EquityPoint, Holdings } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { DEFAULT_CURRENCY } from "../lib/currency";
 import { useFilterParams } from "../components/FiltersContext";
 import { FiltersBar } from "../components/FiltersBar";
 import { EmptyState, ErrorAlert, InfoNote, Loading, Money, PageHeader, StatCard } from "../components/common";
@@ -23,7 +24,7 @@ interface CompareResp {
 export function PortfolioPage() {
   const { user } = useAuth();
   const params = useFilterParams();
-  const r = user?.base_currency ?? "USDT";
+  const r = user?.base_currency ?? DEFAULT_CURRENCY;
   const balances = useQuery({ queryKey: ["balances", params], queryFn: () => api<Holdings>(`/api/portfolio/balances${qs(params)}`) });
   const history = useQuery({ queryKey: ["history", params], queryFn: () => api<{ items: EquityPoint[] }>(`/api/portfolio/history${qs(params)}`) });
   const [range, setRange] = useState<[Date | null, Date | null]>([null, null]);

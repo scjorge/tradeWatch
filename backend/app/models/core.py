@@ -72,7 +72,8 @@ class User(TimestampMixin, Base):
     mfa_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
     # Preferências
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="America/Sao_Paulo")
-    base_currency: Mapped[str] = mapped_column(String(16), nullable=False, default="USDT")
+    # Moeda padrão da plataforma: BRL (padrão) ou USDT (dólar).
+    base_currency: Mapped[str] = mapped_column(String(16), nullable=False, default="BRL", server_default="BRL")
     cost_method: Mapped[str] = mapped_column(String(16), nullable=False, default="FIFO")
 
     roles: Mapped[list[Role]] = relationship(secondary=user_roles, lazy="selectin")

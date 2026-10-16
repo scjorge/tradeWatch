@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal as D
 
@@ -78,6 +79,50 @@ def test_filters_summary_and_calendar(make_user, db):
     assert "Taxa BRL" in csv_text.splitlines()[0]
 
 
+def test_consolidated_merges_fills_of_the_same_order(make_user, db):
+    def fill(i, side, qty, price, order):
+        return replace(fakes.ex(i, side, qty, price, minutes=NOON + i), external_order_id=order)
+
+    execs = [
+        fill(1, "BUY", "0.4", "100", "B1"), fill(2, "BUY", "0.6", "100", "B1"),  # 1 ordem de compra, 2 execuções
+        fill(3, "SELL", "0.5", "110", "S1"), fill(4, "SELL", "0.5", "110", "S1"),  # 1 ordem de venda, 2 execuções
+        fill(5, "BUY", "0.5", "100", "B2"), fill(6, "BUY", "0.5", "102", "B2"),  # posição em aberto
+    ]
+    api, state, cid = _setup(make_user, db, execs)
+    _run_all(db)
+    assert len([r for r in _rows(api) if r["status"] == "closed"]) == 3  # pedaços FIFO
+
+    body = api.get("/api/trades/cycles/consolidated").json()
+    rows = {r["status"]: r for r in body["items"]}
+    assert body["total"] == 2
+    closed, opened = rows["closed"], rows["open"]
+    assert (closed["buy_executions"], closed["sell_executions"], closed["parts"]) == (2, 2, 3)
+    assert D(closed["buy_quantity"]) == 1 and D(closed["sell_quantity"]) == 1
+    assert D(closed["buy_total_brl"]) == 500 and D(closed["sell_total_brl"]) == 550 and D(closed["pnl_brl"]) == 50
+    assert closed["pnl_pct"] == 10.0
+    assert D(opened["buy_quantity"]) == 1 and D(opened["buy_price"]) == 101 and opened["buy_executions"] == 2
+
+    assert api.get("/api/trades/cycles/consolidated", params={"result": "loss"}).json()["total"] == 0
+    assert api.get("/api/trades/cycles/consolidated", params={"min_pnl": "50"}).json()["total"] == 1
+    csv_lines = api.get("/api/trades/cycles/consolidated.csv").text.splitlines()
+    assert "Execuções Compra" in csv_lines[0] and len(csv_lines) == 3
+
+
+def test_default_currency_is_brl_and_dollar_switches_operations(make_user, db):
+    api, state, cid = _setup(make_user, db, [fakes.ex(1, "BUY", "1", "100"), fakes.ex(2, "SELL", "1", "110")])
+    _run_all(db)
+    assert api.get("/api/me").json()["base_currency"] == "BRL"
+    body = api.get("/api/trades/cycles").json()
+    assert body["currency"] == "BRL" and D(body["items"][0]["pnl_brl"]) == 50  # 10 USDT × câmbio 5
+
+    assert api.patch("/api/me", json={"base_currency": "EUR"}).status_code == 400
+    assert api.patch("/api/me", json={"base_currency": "USDT"}).json()["base_currency"] == "USDT"
+    body = api.get("/api/trades/cycles").json()
+    assert body["currency"] == "USDT" and D(body["items"][0]["pnl_brl"]) == 10
+    assert api.get("/api/trades/cycles/summary").json()["currency"] == "USDT"
+    assert "Valor Compra USDT" in api.get("/api/trades/cycles.csv").text.splitlines()[0]
+
+
 def test_users_only_see_their_own_rows(make_user, db):
     api, state, cid = _setup(make_user, db, [fakes.ex(1, "BUY", "1", "100"), fakes.ex(2, "SELL", "1", "110")])
     _run_all(db)
@@ -133,6 +178,15 @@ def test_bnb_fee_added_to_cost():
     sell = _ex(2, "SELL", "1", "100")
     [c] = build_cycles([buy, sell], _fx)
     assert c.buy_total_brl == D(500) + D(25) and c.pnl_brl == D(-25) and c.fees_brl == D(25)
+
+
+def test_cycles_in_dollar_use_identity_for_usdt_pairs():
+    brl_pair = Exec(uuid.uuid4(), None, T, "BTC", "BRL", "BUY", D(1), D(500), D(0), None)
+    sell = Exec(uuid.uuid4(), None, T + timedelta(hours=1), "BTC", "BRL", "SELL", D(1), D(550), D(0), None)
+    [c] = build_cycles([brl_pair, sell], lambda a, t: {"BRL": D("0.2")}.get(a), "USDT")
+    assert c.buy_total_brl == D(100) and c.pnl_brl == D(10)  # 500 BRL × 0,2 ; 50 BRL × 0,2
+    [c] = build_cycles([_ex(1, "BUY", "1", "100"), _ex(2, "SELL", "1", "110")], lambda a, t: None, "USDT")
+    assert c.complete and c.pnl_brl == D(10)
 
 
 def test_missing_fx_marks_incomplete():

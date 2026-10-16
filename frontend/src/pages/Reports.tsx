@@ -6,6 +6,7 @@ import { useState } from "react";
 import { api, qs } from "../api/client";
 import type { PeriodPnl } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { DEFAULT_CURRENCY } from "../lib/currency";
 import { useFilterParams } from "../components/FiltersContext";
 import { FiltersBar } from "../components/FiltersBar";
 import { EmptyState, Loading, Money, PageHeader } from "../components/common";
@@ -15,7 +16,7 @@ export function ReportsPage() {
   const { user } = useAuth();
   const params = useFilterParams();
   const [granularity, setGranularity] = useState("month");
-  const r = user?.base_currency ?? "USDT";
+  const r = user?.base_currency ?? DEFAULT_CURRENCY;
   const q = useQuery({
     queryKey: ["by-period", params, granularity],
     queryFn: () => api<{ items: PeriodPnl[] }>(`/api/trades/pnl/by-period${qs({ ...params, granularity })}`),

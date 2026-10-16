@@ -21,7 +21,8 @@ from app.modules.users.schemas import UserOut, user_out
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
-SUPPORTED_BASE_CURRENCIES = ("USDT", "USDC", "BRL", "USD", "EUR", "BTC")
+# Moeda padrão da plataforma: real ou dólar (USDT, a referência de dólar nas corretoras de cripto).
+SUPPORTED_BASE_CURRENCIES = ("BRL", "USDT")
 COST_METHODS = ("FIFO", "AVERAGE")
 
 
@@ -52,7 +53,7 @@ def update_me(body: ProfileIn, request: Request, user: User = Depends(current_us
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise AppError("Fuso horário inválido.") from exc
     if "base_currency" in changes and changes["base_currency"] not in SUPPORTED_BASE_CURRENCIES:
-        raise AppError("Moeda-base não suportada.")
+        raise AppError("Moeda não suportada. Use BRL ou USDT (dólar).")
     if "cost_method" in changes and changes["cost_method"] not in COST_METHODS:
         raise AppError("Método de custo inválido.")
     recalc = any(k in changes and changes[k] != getattr(user, k) for k in ("base_currency", "cost_method"))
@@ -61,9 +62,16 @@ def update_me(body: ProfileIn, request: Request, user: User = Depends(current_us
     audit(db, "user.profile_updated", user_id=user.id, request=request, fields=sorted(changes))
     db.commit()
     if recalc:
+        from app.integrations.registry import build_price_source
         from app.modules.trades.pnl.service import recalculate_user
 
-        recalculate_user(db, user.id)
+        # Com a fonte de cotações, o câmbio histórico que faltar para a nova moeda é buscado agora.
+        source = build_price_source()
+        try:
+            recalculate_user(db, user.id, source)
+        finally:
+            if hasattr(source, "close"):
+                source.close()
     return user_out(user)
 
 

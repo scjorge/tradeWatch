@@ -147,8 +147,10 @@ def rebuild_cycles(db: Session, user_id: uuid.UUID, price_source: PriceSource | 
         )
         for e in db.scalars(select(TradeExecution).where(TradeExecution.user_id == user_id))
     ]
-    brl = HistoricalPrices(db, "BRL", price_source)
-    cycles = build_cycles(execs, brl)
+    user = db.get(User, user_id)
+    currency = user.base_currency if user else "BRL"
+    fx = HistoricalPrices(db, currency, price_source)
+    cycles = build_cycles(execs, fx, currency)
 
     # Ordens abertas na corretora: "Ordem Comprar" / "Ordem Vender".
     for o in db.scalars(select(ExchangeOrder).where(ExchangeOrder.user_id == user_id, ExchangeOrder.status.in_(OPEN_ORDER_STATUSES))):

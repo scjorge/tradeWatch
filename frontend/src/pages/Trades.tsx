@@ -6,6 +6,7 @@ import { useState } from "react";
 import { api, qs } from "../api/client";
 import type { Paged, PositionRow, RealizedRecord, RealizedSummary } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { DEFAULT_CURRENCY } from "../lib/currency";
 import { DataTable, type Column } from "../components/DataTable";
 import { useFilterParams } from "../components/FiltersContext";
 import { FiltersBar } from "../components/FiltersBar";
@@ -44,7 +45,7 @@ export function TradesPage() {
     },
   });
 
-  const r = user?.base_currency ?? "USDT";
+  const r = user?.base_currency ?? DEFAULT_CURRENCY;
   const s = summary.data;
 
   const cols: Column<RealizedRecord>[] = [

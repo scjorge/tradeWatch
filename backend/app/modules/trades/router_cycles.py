@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -105,7 +106,7 @@ def _query(user: User, f: Filters, cf: CycleFilters):
 
 
 # ------------------------------------------------------------------ valores (inclui estimativa de posições abertas)
-def _live(c: TradeCycle, prices: CurrentPrices) -> dict:
+def _live(c: TradeCycle, prices: CurrentPrices, ref: str = "BRL") -> dict:
     """Para "Ativo"/"Ordem Vender": estima a venda pela cotação atual ou pelo preço-alvo."""
     est = {"estimated": False, "price_source": None}
     if c.status not in (CycleStatus.OPEN, CycleStatus.SELL_ORDER) or c.buy_total_brl is None or not c.sell_quantity:
@@ -116,8 +117,8 @@ def _live(c: TradeCycle, prices: CurrentPrices) -> dict:
         q = prices.get(c.asset, quote)
         price, source = (q.price, q.source) if q else (None, None)
     # Câmbio atual; sem cotação recente, usa o câmbio da compra.
-    cur = None if quote == "BRL" else prices.get(quote, "BRL")
-    fxq = Decimal(1) if quote == "BRL" else (cur.price if cur else c.buy_fx)
+    cur = None if quote == ref else prices.get(quote, ref)
+    fxq = Decimal(1) if quote == ref else (cur.price if cur else c.buy_fx)
     if price is None or fxq is None:
         return {**est, "estimated": True}
     total = c.sell_quantity * price
@@ -135,8 +136,8 @@ def _live(c: TradeCycle, prices: CurrentPrices) -> dict:
     }
 
 
-def _out(c: TradeCycle, prices: CurrentPrices, names: dict) -> dict:
-    live = _live(c, prices)
+def _out(c: TradeCycle, prices: CurrentPrices, names: dict, ref: str = "BRL") -> dict:
+    live = _live(c, prices, ref)
     v = lambda k: live.get(k, getattr(c, k))  # noqa: E731
     sell_qty = c.sell_quantity
     return {
@@ -217,7 +218,8 @@ def list_cycles(
     order = col.desc().nulls_last() if direction == "desc" else col.asc().nulls_last()
     rows = db.scalars(stmt.order_by(order, TradeCycle.id).offset((page - 1) * page_size).limit(page_size)).all()
     prices, names = CurrentPrices(db), _names(db, user)
-    return {"total": total, "page": page, "page_size": page_size, "items": [_out(c, prices, names) for c in rows]}
+    items = [_out(c, prices, names, user.base_currency) for c in rows]
+    return {"total": total, "page": page, "page_size": page_size, "currency": user.base_currency, "items": items}
 
 
 # ------------------------------------------------------------------ resumo e análises
@@ -252,7 +254,7 @@ def cycles_summary(
     holding = [c.holding_days for c in closed if c.holding_days is not None]
 
     open_rows = [c for c in rows if c.status in (CycleStatus.OPEN, CycleStatus.SELL_ORDER)]
-    live = [(c, _live(c, prices)) for c in open_rows if c.status == CycleStatus.OPEN]
+    live = [(c, _live(c, prices, user.base_currency)) for c in open_rows if c.status == CycleStatus.OPEN]
     unrealized = [x["pnl_brl"] for _, x in live if x.get("pnl_brl") is not None]
 
     def rec(c):
@@ -307,7 +309,7 @@ def cycles_summary(
     )
 
     return {
-        "currency": "BRL",
+        "currency": user.base_currency,
         "granularity": granularity,
         "closed_count": len(closed),
         "wins": len(wins),
@@ -365,6 +367,123 @@ def cycles_calendar(
     return {"month": month, "total_brl": _f(total), "days": [{"date": d, "pnl_brl": _f(v["pnl"]), "count": v["count"]} for d, v in days.items()]}
 
 
+# ------------------------------------------------------------------ compra e venda consolidada
+DEC_FIELDS = (
+    "buy_quantity", "buy_price", "buy_fee", "buy_unit_brl", "buy_total", "buy_fx", "buy_total_brl",
+    "sell_quantity", "sell_price", "sell_fee", "sell_unit_brl", "sell_total", "sell_fx", "sell_total_brl",
+    "pnl_brl", "pnl_quote", "fx_effect_brl", "fees_brl",
+)
+FLOAT_FIELDS = ("pnl_pct", "holding_days")
+POST_FILTERS = ("result", "min_pnl", "max_pnl", "min_pct", "max_pct", "min_days", "max_days")
+
+
+def _order_keys(db: Session, user: User) -> dict:
+    """execução → identificador da ordem (id interno, senão o ID externo da corretora, senão a própria execução)."""
+    from app.models import TradeExecution as E
+
+    keys = {}
+    for eid, oid, ext, conn in db.execute(select(E.id, E.order_id, E.external_order_id, E.connection_id).where(E.user_id == user.id)):
+        keys[eid] = ("o", oid) if oid else (("x", conn, ext) if ext else ("e", eid))
+    return keys
+
+
+def _group_key(c: TradeCycle, orders: dict):
+    def k(eid):
+        return None if eid is None else orders.get(eid, ("e", eid))
+
+    if c.status == CycleStatus.CLOSED:
+        sell = k(c.sell_execution_id) if c.sell_execution_id else ("so", c.sell_order_id)
+        return ("closed", c.asset, c.buy_quote, c.sell_quote, k(c.buy_execution_id), sell)
+    if c.status == CycleStatus.OPEN and c.buy_execution_id:
+        return ("open", c.asset, c.buy_quote, k(c.buy_execution_id))
+    return ("row", c.id)  # ordens abertas já são uma linha por ordem
+
+
+def _raw(c: TradeCycle, prices: CurrentPrices, names: dict, ref: str = "BRL") -> dict:
+    d = _out(c, prices, names, ref)
+    for k in DEC_FIELDS:
+        d[k] = None if d[k] is None else Decimal(d[k])
+    for k in FLOAT_FIELDS:
+        d[k] = None if d[k] is None else Decimal(str(d[k]))
+    d["buy_execution_id"], d["sell_execution_id"], d["ref_at"] = c.buy_execution_id, c.sell_execution_id, c.ref_at
+    return d
+
+
+def _passes(r: dict, cf: CycleFilters) -> bool:
+    pnl, pct, days = r["pnl_brl"], r["pnl_pct"], r["holding_days"]
+    if cf.result == "gain" and not (pnl is not None and pnl > 0):
+        return False
+    if cf.result == "loss" and not (pnl is not None and pnl < 0):
+        return False
+    if cf.result == "even" and pnl != 0:
+        return False
+    if cf.result == "incomplete" and r["complete"]:
+        return False
+    for v, lo, hi in ((pnl, cf.min_pnl, cf.max_pnl), (pct, cf.min_pct, cf.max_pct), (days, cf.min_days, cf.max_days)):
+        if (lo is not None or hi is not None) and v is None:
+            return False
+        if lo is not None and v < lo:
+            return False
+        if hi is not None and v > hi:
+            return False
+    return True
+
+
+def _consolidated(db: Session, user: User, f: Filters, cf: CycleFilters) -> list[dict]:
+    from dataclasses import replace
+
+    from app.modules.trades.consolidated import consolidate
+
+    # Filtros de resultado valem para a linha consolidada, não para cada pedaço.
+    base = replace(cf, **{k: None for k in POST_FILTERS})
+    if cf.result_only_closed:
+        base.status = [s for s in (cf.status or [CycleStatus.CLOSED]) if s == CycleStatus.CLOSED] or ["-"]
+    prices, names, orders = CurrentPrices(db), _names(db, user), _order_keys(db, user)
+    rows = db.scalars(_query(user, f, base).order_by(TradeCycle.ref_at.desc().nulls_last(), TradeCycle.id))
+    merged = consolidate((_group_key(c, orders), _raw(c, prices, names, user.base_currency)) for c in rows)
+    for r in merged:
+        r["id"] = str(uuid.uuid5(uuid.NAMESPACE_OID, f"{user.id}:{r['id']}"))
+    return [r for r in merged if _passes(r, cf)]
+
+
+def _fmt(r: dict) -> dict:
+    out = {k: v for k, v in r.items() if k not in ("buy_execution_id", "sell_execution_id", "ref_at")}
+    for k in DEC_FIELDS:
+        out[k] = _f(r[k])
+    for k in FLOAT_FIELDS:
+        out[k] = None if r[k] is None else float(r[k])
+    return out
+
+
+CONSOLIDATED_SORTS = {"ref_at", "buy_at", "sell_at", "asset", "status", "pnl_brl", "pnl_pct", "buy_total_brl", "holding_days"}
+
+
+@router.get("/cycles/consolidated")
+def list_cycles_consolidated(
+    f: Filters = Depends(filters_dep),
+    cf: CycleFilters = Depends(cycle_filters),
+    sort: str = Query("ref_at"),
+    direction: str = Query("desc", pattern="^(asc|desc)$"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    user: User = Depends(require_permission(READ)),
+    db: Session = Depends(get_db),
+):
+    """Mesma tabela de compra e venda, com as execuções da mesma ordem somadas numa linha só."""
+    rows = _consolidated(db, user, f, cf)
+    key = sort if sort in CONSOLIDATED_SORTS else "ref_at"
+    filled = sorted((r for r in rows if r[key] is not None), key=lambda r: r[key], reverse=direction == "desc")
+    rows = filled + [r for r in rows if r[key] is None]  # vazios sempre no fim
+    start = (page - 1) * page_size
+    items = [_fmt(r) for r in rows[start:start + page_size]]
+    return {"total": len(rows), "page": page, "page_size": page_size, "currency": user.base_currency, "items": items}
+
+
+def _header(h: str, user: User) -> str:
+    """Colunas em moeda de referência levam o código da moeda escolhida pelo usuário."""
+    return h.replace("BRL", user.base_currency)
+
+
 EXPORT_COLUMNS = [
     ("Status", "status_label"), ("Criptomoeda", "asset"), ("Moeda", "quote"), ("Conta", "account"), ("Data Compra", "buy_at"),
     ("Quant. a Comprar", "buy_quantity"), ("Valor Unitário Compra", "buy_price"), ("Taxa Transação", "buy_fee"),
@@ -389,9 +508,9 @@ def export_cycles(
     prices, names = CurrentPrices(db), _names(db, user)
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
-    w.writerow([h for h, _ in EXPORT_COLUMNS])
+    w.writerow([_header(h, user) for h, _ in EXPORT_COLUMNS])
     for c in db.scalars(_query(user, f, cf).order_by(TradeCycle.ref_at.desc().nulls_last()).limit(100_000)):
-        d = _out(c, prices, names)
+        d = _out(c, prices, names, user.base_currency)
         if d["estimated"]:
             for k in ("sell_price", "sell_fx", "sell_unit_brl", "sell_total", "sell_total_brl", "pnl_brl", "pnl_pct"):
                 d[k] = None  # estimativas não são exportadas como se fossem realizadas
@@ -399,6 +518,34 @@ def export_cycles(
             d[k] = d[k].astimezone(tz).strftime("%d/%m/%Y") if d[k] else None
         w.writerow([_csv_safe(d[k]) for _, k in EXPORT_COLUMNS])
     name = f"operacoes-compra-venda-{utcnow():%Y%m%d}.csv"
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+CONSOLIDATED_EXPORT_COLUMNS = EXPORT_COLUMNS[:4] + [("Execuções Compra", "buy_executions"), ("Execuções Venda", "sell_executions")] + EXPORT_COLUMNS[4:]
+
+
+@router.get("/cycles/consolidated.csv")
+def export_cycles_consolidated(
+    f: Filters = Depends(filters_dep),
+    cf: CycleFilters = Depends(cycle_filters),
+    user: User = Depends(require_permission(READ)),
+    db: Session = Depends(get_db),
+):
+    from app.modules.trades.router_data import _csv_safe
+
+    tz = ZoneInfo(user.timezone)
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow([_header(h, user) for h, _ in CONSOLIDATED_EXPORT_COLUMNS])
+    for r in _consolidated(db, user, f, cf)[:100_000]:
+        d = _fmt(r)
+        if d["estimated"]:
+            for k in ("sell_price", "sell_fx", "sell_unit_brl", "sell_total", "sell_total_brl", "pnl_brl", "pnl_pct"):
+                d[k] = None  # estimativas não são exportadas como se fossem realizadas
+        for k in ("buy_at", "sell_at"):
+            d[k] = d[k].astimezone(tz).strftime("%d/%m/%Y") if d[k] else None
+        w.writerow([_csv_safe(d[k]) for _, k in CONSOLIDATED_EXPORT_COLUMNS])
+    name = f"operacoes-compra-venda-consolidada-{utcnow():%Y%m%d}.csv"
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 

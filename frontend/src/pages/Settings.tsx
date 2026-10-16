@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import type { User } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { PageHeader } from "../components/common";
+import { CURRENCY_OPTIONS } from "../lib/currency";
 import { fmtDate } from "../lib/format";
 
 interface SessionRow {
@@ -42,7 +43,14 @@ function Profile() {
         <TextInput label="Nome" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.currentTarget.value })} />
         <TextInput label="E-mail" value={user?.email ?? ""} disabled />
         <Select label="Fuso horário" data={Array.from(new Set([form.timezone, ...TIMEZONES])).filter(Boolean)} value={form.timezone} onChange={(v) => v && setForm({ ...form, timezone: v })} searchable />
-        <Select label="Moeda-base" description="Moeda em que patrimônio e resultados são consolidados." data={["USDT", "USDC", "BRL", "USD", "EUR", "BTC"]} value={form.base_currency} onChange={(v) => v && setForm({ ...form, base_currency: v })} />
+        <Select
+          label="Moeda padrão da plataforma"
+          description="Moeda em que patrimônio, resultados e operações são exibidos. Dólar usa USDT, a referência de dólar nas corretoras. Ao trocar, tudo é recalculado com o câmbio histórico de cada operação."
+          data={CURRENCY_OPTIONS}
+          value={form.base_currency}
+          onChange={(v) => v && setForm({ ...form, base_currency: v })}
+          allowDeselect={false}
+        />
         <Select
           label="Método de apuração de custo"
           data={[

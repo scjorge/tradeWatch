@@ -12,6 +12,7 @@ import { SyncButton } from "../components/SyncButton";
 import { useFilterParams } from "../components/FiltersContext";
 import { FiltersBar } from "../components/FiltersBar";
 import { EmptyState, ErrorAlert, InfoNote, Loading, PageHeader, SideBadge, StatusBadge } from "../components/common";
+import { useCurrency } from "../lib/currency";
 import { fmtDate, fmtMoney, fmtNumber } from "../lib/format";
 import { AssetsPanel, CalendarPanel, CyclesTable, EMPTY_RESULT_FILTERS, PeriodsPanel, ResultFiltersBar, SummaryCards, resultParams, type ResultFilters } from "./operations/BuySell";
 
@@ -176,6 +177,7 @@ function MovementsTab() {
 
 export function OperationsPage() {
   const qc = useQueryClient();
+  const currency = useCurrency();
   const globalParams = useFilterParams();
   const [rf, setRf] = useState<ResultFilters>(EMPTY_RESULT_FILTERS);
   // Mesmos filtros para tabela, indicadores, períodos e calendário.
@@ -199,7 +201,7 @@ export function OperationsPage() {
     <>
       <PageHeader
         title="Operações"
-        description="Cada compra com a venda que a encerrou: valores na moeda e em BRL, lucro/prejuízo e %, com filtros por período e resultado."
+        description={`Cada compra com a venda que a encerrou: valores na moeda do par e em ${currency}, lucro/prejuízo e %, com filtros por período e resultado.`}
         actions={
           <Group gap="xs">
             <SyncButton />
@@ -208,6 +210,7 @@ export function OperationsPage() {
                 <Button size="xs" variant="light" leftSection={<IconDownload size={14} />}>Exportar</Button>
               </Menu.Target>
               <Menu.Dropdown>
+                <Menu.Item component="a" href={`/api/trades/cycles/consolidated.csv${qs(params)}`}>Compra e venda consolidada (CSV)</Menu.Item>
                 <Menu.Item component="a" href={`/api/trades/cycles.csv${qs(params)}`}>Compra e venda (CSV)</Menu.Item>
                 <Menu.Item component="a" href={`/api/trades/executions.csv${qs(globalParams)}`}>Execuções (CSV)</Menu.Item>
               </Menu.Dropdown>
@@ -224,8 +227,9 @@ export function OperationsPage() {
       <ResultFiltersBar value={rf} onChange={setRf} />
       {summary.data && <SummaryCards s={summary.data} />}
       <Card withBorder radius="md">
-        <Tabs defaultValue="buysell" keepMounted={false}>
+        <Tabs defaultValue="buysell_consolidated" keepMounted={false}>
           <Tabs.List mb="md">
+            <Tabs.Tab value="buysell_consolidated">Compra e venda consolidada</Tabs.Tab>
             <Tabs.Tab value="buysell">Compra e venda</Tabs.Tab>
             <Tabs.Tab value="periods">Por período</Tabs.Tab>
             <Tabs.Tab value="calendar">Calendário</Tabs.Tab>
@@ -234,6 +238,10 @@ export function OperationsPage() {
             <Tabs.Tab value="orders">Ordens</Tabs.Tab>
             <Tabs.Tab value="movements">Depósitos e retiradas</Tabs.Tab>
           </Tabs.List>
+          <Tabs.Panel value="buysell_consolidated">
+            <InfoNote>Execuções da mesma ordem de compra e da mesma ordem de venda somadas numa linha só. Os filtros de resultado valem para a linha consolidada.</InfoNote>
+            <CyclesTable params={params} consolidated />
+          </Tabs.Panel>
           <Tabs.Panel value="buysell">
             <CyclesTable params={params} />
           </Tabs.Panel>

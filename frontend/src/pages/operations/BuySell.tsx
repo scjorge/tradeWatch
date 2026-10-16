@@ -20,12 +20,13 @@ import {
 import { MonthPickerInput } from "@mantine/dates";
 import { IconChevronLeft, IconChevronRight, IconFilterOff } from "@tabler/icons-react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { api, qs } from "../../api/client";
 import type { CycleRow, CycleSummary, Paged } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
 import { EmptyState, Loading, Money, StatCard } from "../../components/common";
 import { ColumnPicker } from "../../components/ColumnPicker";
+import { useCurrency } from "../../lib/currency";
 import { fmtDate, fmtMoney, fmtNumber, fmtPct, signColor } from "../../lib/format";
 import { useModuleSettings } from "../../lib/moduleSettings";
 export const STATUS_OPTIONS: { value: string; label: string; color: string }[] = [
@@ -109,18 +110,19 @@ export function ResultFiltersBar({ value, onChange }: { value: ResultFilters; on
 
 // ------------------------------------------------------------------ indicadores
 export function SummaryCards({ s }: { s: CycleSummary }) {
+  const cur = useCurrency();
   return (
     <>
       <SimpleGrid cols={{ base: 2, md: 4 }} mb="sm">
         <StatCard
-          label="Lucro / prejuízo (BRL)"
-          value={<Money value={s.pnl_brl} currency="BRL" colored />}
+          label={`Lucro / prejuízo (${cur})`}
+          value={<Money value={s.pnl_brl} currency={cur} colored />}
           color={signColor(s.pnl_brl)}
-          hint={`Rentabilidade ${fmtPct(s.return_pct)} sobre ${fmtMoney(s.invested_closed_brl, "BRL")} · ganhos ${fmtMoney(s.gains_brl, "BRL")} · perdas ${fmtMoney(s.losses_brl, "BRL")}`}
+          hint={`Rentabilidade ${fmtPct(s.return_pct)} sobre ${fmtMoney(s.invested_closed_brl, cur)} · ganhos ${fmtMoney(s.gains_brl, cur)} · perdas ${fmtMoney(s.losses_brl, cur)}`}
           incomplete={s.incomplete_count ? `${s.incomplete_count} operação(ões) sem compra correspondente ou sem câmbio — fora da soma` : undefined}
         />
         <StatCard label="Operações concluídas" value={s.closed_count} hint={`${s.wins} com lucro · ${s.losses} com prejuízo · acerto ${fmtPct(s.win_rate_pct)}`} />
-        <StatCard label="Ganho médio / perda média" value={s.avg_gain_brl ? <Money value={s.avg_gain_brl} currency="BRL" colored /> : "—"} hint={`Perda média ${fmtMoney(s.avg_loss_brl, "BRL")} · payoff ${s.payoff_ratio !== null ? fmtNumber(s.payoff_ratio, 2) : "—"}`} />
+        <StatCard label="Ganho médio / perda média" value={s.avg_gain_brl ? <Money value={s.avg_gain_brl} currency={cur} colored /> : "—"} hint={`Perda média ${fmtMoney(s.avg_loss_brl, cur)} · payoff ${s.payoff_ratio !== null ? fmtNumber(s.payoff_ratio, 2) : "—"}`} />
         <StatCard
           label="Fator de lucro"
           value={s.profit_factor !== null ? fmtNumber(s.profit_factor, 2) : "—"}
@@ -131,13 +133,13 @@ export function SummaryCards({ s }: { s: CycleSummary }) {
       <SimpleGrid cols={{ base: 2, md: 4 }} mb="md">
         <StatCard
           label="Em aberto (Ativo)"
-          value={<Money value={s.unrealized_brl} currency="BRL" colored />}
-          hint={`${s.open_count} posição(ões) · ${fmtMoney(s.open_invested_brl, "BRL")} investidos · ${s.pending_orders} ordem(ns)`}
+          value={<Money value={s.unrealized_brl} currency={cur} colored />}
+          hint={`${s.open_count} posição(ões) · ${fmtMoney(s.open_invested_brl, cur)} investidos · ${s.pending_orders} ordem(ns)`}
           incomplete={s.unrealized_complete ? undefined : "Alguma posição sem cotação atual; clique em Cotações"}
         />
-        <StatCard label="Melhor / pior operação" value={s.best ? <Money value={s.best.pnl_brl} currency="BRL" colored /> : "—"} hint={s.worst ? `Pior: ${fmtMoney(s.worst.pnl_brl, "BRL")} (${s.worst.asset})` : "—"} />
+        <StatCard label="Melhor / pior operação" value={s.best ? <Money value={s.best.pnl_brl} currency={cur} colored /> : "—"} hint={s.worst ? `Pior: ${fmtMoney(s.worst.pnl_brl, cur)} (${s.worst.asset})` : "—"} />
         <StatCard label="Tempo médio por operação" value={s.avg_holding_days !== null ? `${fmtNumber(s.avg_holding_days, 1)} dia(s)` : "—"} />
-        <StatCard label="Taxas · efeito câmbio" value={fmtMoney(s.fees_brl, "BRL")} hint={`Variação do dólar entre compra e venda: ${fmtMoney(s.fx_effect_brl, "BRL")}`} />
+        <StatCard label="Taxas · efeito câmbio" value={fmtMoney(s.fees_brl, cur)} hint={`Variação do câmbio entre compra e venda: ${fmtMoney(s.fx_effect_brl, cur)}`} />
       </SimpleGrid>
     </>
   );
@@ -159,7 +161,8 @@ interface Col {
   cell: (c: CycleRow, fmtD: (s: string | null) => string) => ReactNode;
 }
 
-const COLUMNS: Col[] = [
+function columnsFor(cur: string): Col[] {
+  return [
   { key: "status", label: "Status", sort: "status", cell: (c) => <span style={{ display: "inline-block", minWidth: 110 }}>{statusBadge(c)}</span> },
   {
     key: "asset",
@@ -184,26 +187,26 @@ const COLUMNS: Col[] = [
   { key: "buy_fee", label: "Taxa", right: true, cell: (c) => (c.buy_fee && Number(c.buy_fee) ? `${fmtNumber(c.buy_fee)} ${c.buy_fee_asset ?? ""}` : "—") },
   {
     key: "fees_brl",
-    label: "Taxa BRL",
+    label: `Taxa ${cur}`,
     right: true,
     cell: (c) => (
-      <Tooltip label={c.status === "closed" ? "Taxas da compra e da venda convertidas para BRL" : "Taxa da compra convertida para BRL"} disabled={!c.fees_brl}>
-        <span>{c.fees_brl !== null && Number(c.fees_brl) ? fmtMoney(c.fees_brl, "BRL") : "—"}</span>
+      <Tooltip label={c.status === "closed" ? `Taxas da compra e da venda convertidas para ${cur}` : `Taxa da compra convertida para ${cur}`} disabled={!c.fees_brl}>
+        <span>{c.fees_brl !== null && Number(c.fees_brl) ? fmtMoney(c.fees_brl, cur) : "—"}</span>
       </Tooltip>
     ),
   },
   { key: "buy_fx", label: "Câmbio Compra", right: true, cell: (c) => fmtNumber(c.buy_fx) },
-  { key: "buy_unit_brl", label: "Unit. Compra BRL", right: true, cell: (c) => fmtNumber(c.buy_unit_brl) },
+  { key: "buy_unit_brl", label: `Unit. Compra ${cur}`, right: true, cell: (c) => fmtNumber(c.buy_unit_brl) },
   { key: "buy_total", label: "Total da Compra", right: true, cell: (c) => fmtNumber(c.buy_total) },
-  { key: "buy_total_brl", label: "Compra BRL", sort: "buy_total_brl", right: true, cell: (c) => fmtMoney(c.buy_total_brl, "BRL") },
+  { key: "buy_total_brl", label: `Compra ${cur}`, sort: "buy_total_brl", right: true, cell: (c) => fmtMoney(c.buy_total_brl, cur) },
   { key: "sell_at", label: "Data Venda", sort: "sell_at", cell: (c, d) => d(c.sell_at) },
   { key: "sell_quantity", label: "Quant. a Vender", right: true, cell: (c) => (c.status === "buy_order" ? "—" : fmtNumber(c.sell_quantity)) },
   { key: "sell_price", label: "Valor Unit. Venda", right: true, estimable: true, cell: (c) => fmtNumber(c.sell_price) },
   { key: "sell_fee", label: "Taxa Venda", right: true, cell: (c) => (c.sell_fee && Number(c.sell_fee) ? `${fmtNumber(c.sell_fee)} ${c.sell_fee_asset ?? ""}` : "—") },
   { key: "sell_fx", label: "Câmbio Venda", right: true, estimable: true, cell: (c) => fmtNumber(c.sell_fx) },
-  { key: "sell_unit_brl", label: "Unit. Venda BRL", right: true, estimable: true, cell: (c) => fmtNumber(c.sell_unit_brl) },
+  { key: "sell_unit_brl", label: `Unit. Venda ${cur}`, right: true, estimable: true, cell: (c) => fmtNumber(c.sell_unit_brl) },
   { key: "sell_total", label: "Total a Venda", right: true, estimable: true, cell: (c) => fmtNumber(c.sell_total) },
-  { key: "sell_total_brl", label: "Venda BRL", right: true, estimable: true, cell: (c) => fmtMoney(c.sell_total_brl, "BRL") },
+  { key: "sell_total_brl", label: `Venda ${cur}`, right: true, estimable: true, cell: (c) => fmtMoney(c.sell_total_brl, cur) },
   {
     key: "pnl_brl",
     label: "Lucro / Prejuízo",
@@ -218,7 +221,7 @@ const COLUMNS: Col[] = [
           disabled={!c.estimated}
         >
           <Text span size="xs" fw={600} c={signColor(c.pnl_brl)} fs={c.estimated ? "italic" : undefined}>
-            {fmtMoney(c.pnl_brl, "BRL")}
+            {fmtMoney(c.pnl_brl, cur)}
             {c.estimated && "*"}
           </Text>
         </Tooltip>
@@ -226,32 +229,54 @@ const COLUMNS: Col[] = [
   },
   { key: "pnl_pct", label: "%", sort: "pnl_pct", right: true, cell: (c) => <Text span size="xs" c={signColor(c.pnl_pct ?? undefined)}>{fmtPct(c.pnl_pct)}</Text> },
   { key: "pnl_quote", label: "Lucro na moeda", right: true, cell: (c) => <Text span size="xs" c={signColor(c.pnl_quote)}>{c.pnl_quote ? `${fmtNumber(c.pnl_quote)} ${c.quote ?? ""}` : "—"}</Text> },
-  { key: "fx_effect_brl", label: "Efeito câmbio", right: true, cell: (c) => <Text span size="xs" c={signColor(c.fx_effect_brl)}>{fmtMoney(c.fx_effect_brl, "BRL")}</Text> },
+  { key: "fx_effect_brl", label: "Efeito câmbio", right: true, cell: (c) => <Text span size="xs" c={signColor(c.fx_effect_brl)}>{fmtMoney(c.fx_effect_brl, cur)}</Text> },
   { key: "holding_days", label: "Dias", sort: "holding_days", right: true, cell: (c) => (c.holding_days !== null ? fmtNumber(c.holding_days, 1) : "—") },
 ];
+}
+const COLUMNS = columnsFor("BRL"); // apenas para as chaves; os rótulos usam a moeda do usuário
 
 const OPTIONAL = new Set(["buy_fx", "sell_fee", "sell_fx", "pnl_quote", "fx_effect_brl"]);
 export const DEFAULT_COLUMNS = COLUMNS.filter((c) => !OPTIONAL.has(c.key)).map((c) => c.key);
 const PREF_KEY = "buysell_columns";
 
-export function CyclesTable({ params }: { params: Record<string, unknown> }) {
+// Versão consolidada: execuções da mesma ordem somadas numa linha, com a contagem de execuções.
+const EXECUTIONS_COL: Col = {
+  key: "executions",
+  label: "Execuções",
+  right: true,
+  cell: (c) => (
+    <Tooltip label={`${c.buy_executions ?? 0} execução(ões) de compra · ${c.sell_executions ?? 0} de venda`}>
+      <span>{c.status === "closed" ? `${c.buy_executions ?? 0} C · ${c.sell_executions ?? 0} V` : `${c.buy_executions || c.sell_executions || 1}`}</span>
+    </Tooltip>
+  ),
+};
+const withExecutions = (cols: Col[]): Col[] => [...cols.slice(0, 4), EXECUTIONS_COL, ...cols.slice(4)];
+const CONSOLIDATED_DEFAULT_COLUMNS = withExecutions(COLUMNS).filter((c) => !OPTIONAL.has(c.key)).map((c) => c.key);
+const CONSOLIDATED_PREF_KEY = "buysell_consolidated_columns";
+
+export function CyclesTable({ params, consolidated = false }: { params: Record<string, unknown>; consolidated?: boolean }) {
   const { user } = useAuth();
   const prefs = useModuleSettings("trades");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [sort, setSort] = useState({ key: "ref_at", dir: "desc" as "asc" | "desc" });
+  const endpoint = consolidated ? "/api/trades/cycles/consolidated" : "/api/trades/cycles";
+  const cur = useCurrency();
+  const columns = useMemo(() => (consolidated ? withExecutions(columnsFor(cur)) : columnsFor(cur)), [consolidated, cur]);
+  const defaults = consolidated ? CONSOLIDATED_DEFAULT_COLUMNS : DEFAULT_COLUMNS;
+  const prefKey = consolidated ? CONSOLIDATED_PREF_KEY : PREF_KEY;
   const q = useQuery({
-    queryKey: ["cycles", params, page, pageSize, sort],
-    queryFn: () => api<Paged<CycleRow>>(`/api/trades/cycles${qs({ ...params, page, page_size: pageSize, sort: sort.key, direction: sort.dir })}`),
+    queryKey: [consolidated ? "cycles-consolidated" : "cycles", params, page, pageSize, sort],
+    queryFn: () => api<Paged<CycleRow>>(`${endpoint}${qs({ ...params, page, page_size: pageSize, sort: sort.key, direction: sort.dir })}`),
     placeholderData: keepPreviousData,
   });
   const tz = user?.timezone;
   const d = (s: string | null) => (s ? fmtDate(s, tz, false) : "—");
 
-  const saved = prefs.settings?.[PREF_KEY];
-  const known = new Set(COLUMNS.map((c) => c.key));
-  const visibleKeys = Array.isArray(saved) ? (saved as string[]).filter((k) => known.has(k)) : DEFAULT_COLUMNS;
-  const visible = COLUMNS.filter((c) => visibleKeys.includes(c.key));
+  const saved = prefs.settings?.[prefKey];
+  const known = new Set(columns.map((c) => c.key));
+  const visibleKeys = Array.isArray(saved) ? (saved as string[]).filter((k) => known.has(k)) : defaults;
+  const visible = columns.filter((c) => visibleKeys.includes(c.key));
 
   if (q.isLoading || !prefs.loaded) return <Loading />;
   if (!q.data?.total)
@@ -262,10 +287,10 @@ export function CyclesTable({ params }: { params: Record<string, unknown> }) {
     <>
       <Group justify="flex-end" mb="xs">
         <ColumnPicker
-          columns={COLUMNS.map((c) => ({ key: c.key, label: c.label }))}
+          columns={columns.map((c) => ({ key: c.key, label: c.label }))}
           visible={visibleKeys}
-          defaults={DEFAULT_COLUMNS}
-          onChange={(keys) => prefs.save({ [PREF_KEY]: keys })}
+          defaults={defaults}
+          onChange={(keys) => prefs.save({ [prefKey]: keys })}
         />
       </Group>
       <Table.ScrollContainer minWidth={Math.max(700, visible.length * 95)}>
@@ -303,7 +328,8 @@ export function CyclesTable({ params }: { params: Record<string, unknown> }) {
       </Table.ScrollContainer>
       <Group justify="space-between" mt="sm">
         <Text size="xs" c="dimmed">
-          {q.data.total.toLocaleString("pt-BR")} linha(s) · * estimado (posição aberta pela cotação atual ou ordem de venda pelo preço-alvo); só "Concluído" entra no lucro realizado.
+          {q.data.total.toLocaleString("pt-BR")} linha(s)
+          {consolidated && " · execuções da mesma ordem somadas; valores unitários e câmbio são médias ponderadas"} · * estimado (posição aberta pela cotação atual ou ordem de venda pelo preço-alvo); só "Concluído" entra no lucro realizado.
         </Text>
         <Group gap="xs">
           <Select size="xs" w={90} data={["25", "50", "100", "200"]} value={String(pageSize)} onChange={(v) => { if (v) { setPageSize(Number(v)); setPage(1); } }} aria-label="Linhas por página" />
@@ -320,6 +346,7 @@ export function CyclesTable({ params }: { params: Record<string, unknown> }) {
 
 // ------------------------------------------------------------------ análises
 export function PeriodsPanel({ params }: { params: Record<string, unknown> }) {
+  const cur = useCurrency();
   const [granularity, setGranularity] = useState("month");
   const q = useQuery({
     queryKey: ["cycles-summary", params, granularity],
@@ -346,12 +373,12 @@ export function PeriodsPanel({ params }: { params: Record<string, unknown> }) {
                 data={periods.map((p) => ({ period: p.period, Ganhos: Number(p.gains_brl), Perdas: Number(p.losses_brl) }))}
                 dataKey="period"
                 series={[{ name: "Ganhos", color: "teal.6" }, { name: "Perdas", color: "red.6" }]}
-                valueFormatter={(v) => fmtMoney(v, "BRL")}
+                valueFormatter={(v) => fmtMoney(v, cur)}
               />
             </Card>
             <Card withBorder>
               <Text fw={600} size="sm" mb="xs">Resultado acumulado</Text>
-              <LineChart h={240} data={periods.map((p) => ({ period: p.period, Acumulado: Number(p.cumulative_brl) }))} dataKey="period" series={[{ name: "Acumulado", color: "blue.6" }]} curveType="monotone" valueFormatter={(v) => fmtMoney(v, "BRL")} />
+              <LineChart h={240} data={periods.map((p) => ({ period: p.period, Acumulado: Number(p.cumulative_brl) }))} dataKey="period" series={[{ name: "Acumulado", color: "blue.6" }]} curveType="monotone" valueFormatter={(v) => fmtMoney(v, cur)} />
             </Card>
           </SimpleGrid>
           <Table.ScrollContainer minWidth={820}>
@@ -376,13 +403,13 @@ export function PeriodsPanel({ params }: { params: Record<string, unknown> }) {
                     <Table.Td>{p.period}</Table.Td>
                     <Table.Td ta="right">{p.count}</Table.Td>
                     <Table.Td ta="right">{fmtPct(p.win_rate_pct)}</Table.Td>
-                    <Table.Td ta="right" c="teal">{fmtMoney(p.gains_brl, "BRL")}</Table.Td>
-                    <Table.Td ta="right" c="red">{fmtMoney(p.losses_brl, "BRL")}</Table.Td>
-                    <Table.Td ta="right"><Money value={p.pnl_brl} currency="BRL" colored /></Table.Td>
+                    <Table.Td ta="right" c="teal">{fmtMoney(p.gains_brl, cur)}</Table.Td>
+                    <Table.Td ta="right" c="red">{fmtMoney(p.losses_brl, cur)}</Table.Td>
+                    <Table.Td ta="right"><Money value={p.pnl_brl} currency={cur} colored /></Table.Td>
                     <Table.Td ta="right" c={signColor(p.return_pct ?? undefined)}>{fmtPct(p.return_pct)}</Table.Td>
-                    <Table.Td ta="right" c={signColor(p.change_vs_prev_brl)}>{p.change_vs_prev_brl ? fmtMoney(p.change_vs_prev_brl, "BRL") : "—"}</Table.Td>
-                    <Table.Td ta="right">{fmtMoney(p.fees_brl, "BRL")}</Table.Td>
-                    <Table.Td ta="right"><Money value={p.cumulative_brl} currency="BRL" colored /></Table.Td>
+                    <Table.Td ta="right" c={signColor(p.change_vs_prev_brl)}>{p.change_vs_prev_brl ? fmtMoney(p.change_vs_prev_brl, cur) : "—"}</Table.Td>
+                    <Table.Td ta="right">{fmtMoney(p.fees_brl, cur)}</Table.Td>
+                    <Table.Td ta="right"><Money value={p.cumulative_brl} currency={cur} colored /></Table.Td>
                   </Table.Tr>
                 ))}
               </Table.Tbody>
@@ -395,6 +422,7 @@ export function PeriodsPanel({ params }: { params: Record<string, unknown> }) {
 }
 
 export function CalendarPanel({ params }: { params: Record<string, unknown> }) {
+  const cur = useCurrency();
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const key = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
   const { start: _s, end: _e, ...rest } = params;
@@ -412,7 +440,7 @@ export function CalendarPanel({ params }: { params: Record<string, unknown> }) {
           <MonthPickerInput value={month} onChange={(d) => d && setMonth(d)} valueFormat="MMMM [de] YYYY" w={190} size="sm" />
           <ActionIcon variant="default" onClick={() => shift(1)} aria-label="Próximo mês"><IconChevronRight size={16} /></ActionIcon>
         </Group>
-        <Text size="sm">Total do mês: <Money value={q.data?.total_brl ?? null} currency="BRL" colored /></Text>
+        <Text size="sm">Total do mês: <Money value={q.data?.total_brl ?? null} currency={cur} colored /></Text>
       </Group>
       {q.isLoading ? (
         <Loading />
@@ -429,7 +457,7 @@ export function CalendarPanel({ params }: { params: Record<string, unknown> }) {
                 <Text size="xs" c="dimmed">{Number(d.date.slice(8))}</Text>
                 {d.count > 0 && (
                   <>
-                    <Text size="xs" fw={700} c={signColor(v)}>{fmtMoney(d.pnl_brl, "BRL").replace(" BRL", "")}</Text>
+                    <Text size="xs" fw={700} c={signColor(v)}>{fmtMoney(d.pnl_brl, cur).replace(` ${cur}`, "")}</Text>
                     <Text size="10px" c="dimmed">{d.count} op.</Text>
                   </>
                 )}
@@ -444,6 +472,7 @@ export function CalendarPanel({ params }: { params: Record<string, unknown> }) {
 }
 
 export function AssetsPanel({ s }: { s?: CycleSummary }) {
+  const cur = useCurrency();
   if (!s?.by_asset.length) return <EmptyState title="Sem operações concluídas" description="O ranking por ativo aparece após as primeiras vendas." />;
   return (
     <Table striped fz="sm">
@@ -463,7 +492,7 @@ export function AssetsPanel({ s }: { s?: CycleSummary }) {
             <Table.Td ta="right">{a.count}</Table.Td>
             <Table.Td ta="right">{fmtPct(a.win_rate_pct)}</Table.Td>
             <Table.Td ta="right" c={signColor(a.return_pct ?? undefined)}>{fmtPct(a.return_pct)}</Table.Td>
-            <Table.Td ta="right"><Money value={a.pnl_brl} currency="BRL" colored /></Table.Td>
+            <Table.Td ta="right"><Money value={a.pnl_brl} currency={cur} colored /></Table.Td>
           </Table.Tr>
         ))}
       </Table.Tbody>
