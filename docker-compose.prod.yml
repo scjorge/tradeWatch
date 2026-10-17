@@ -49,6 +49,7 @@ x-hardening: &hardening
 
 services:
   db:
+    container_name: tradewatch-db
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -67,6 +68,7 @@ services:
     logging: *logging
 
   migrate:
+    container_name: tradewatch-migrate
     image: *backend-image
     command: ["sh", "-c", "alembic upgrade head && python -m app.cli seed"]
     environment: *backend-env
@@ -78,6 +80,7 @@ services:
     logging: *logging
 
   api:
+    container_name: tradewatch-api
     image: *backend-image
     restart: unless-stopped
     environment: *backend-env
@@ -88,6 +91,7 @@ services:
     logging: *logging
 
   worker:
+    container_name: tradewatch-worker
     image: *backend-image
     restart: unless-stopped
     command: ["python", "-m", "app.worker.main"]
@@ -101,6 +105,7 @@ services:
     logging: *logging
 
   web:
+    container_name: tradewatch-web
     image: ${IMAGE_NAMESPACE}/tradewatch-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on: [api]
@@ -118,9 +123,10 @@ services:
       traefik.http.middlewares.tradewatch-headers.headers.stsSeconds: "31536000"
       traefik.http.middlewares.tradewatch-headers.headers.stsIncludeSubdomains: "true"
       traefik.http.middlewares.tradewatch-headers.headers.stsPreload: "true"
-      traefik.http.services.tradewatch.loadbalancer.server.port: "8080"
+      traefik.http.services.tradewatch.loadbalancer.server.port: "8181"
 
   backup:
+    container_name: tradewatch-backup
     image: ${IMAGE_NAMESPACE}/tradewatch-backup:${IMAGE_TAG:-latest}
     restart: unless-stopped
     command: ["backup.sh", "loop"]
@@ -141,6 +147,7 @@ services:
 
   # ---- Traefik opcional (use --profile traefik se o servidor ainda não tiver um proxy reverso)
   traefik:
+    container_name: tradewatch-traefik
     image: traefik:v3.2
     profiles: [traefik]
     restart: unless-stopped

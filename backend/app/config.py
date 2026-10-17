@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, extra="ignore", case_sensitive=False, env_ignore_empty=True)
 
     app_env: str = "production"
-    app_base_url: str = "http://localhost:8080"
+    app_base_url: str = "http://localhost:8181"
     # Origens extras aceitas em requisições que alteram estado, separadas por vírgula.
     allowed_origins: str = ""
     log_level: str = "INFO"

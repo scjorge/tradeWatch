@@ -49,8 +49,8 @@ docker compose up -d --build
 
 | Serviço | Endereço |
 |---|---|
-| Aplicação | http://localhost:8080 |
-| Documentação da API (OpenAPI) | http://localhost:8080/api/docs |
+| Aplicação | http://localhost:8181 |
+| Documentação da API (OpenAPI) | http://localhost:8181/api/docs |
 | E-mails de desenvolvimento (Mailpit) | http://localhost:8025 |
 
 O serviço `migrate` aplica as migrações (`alembic upgrade head`) e semeia papéis, permissões,
@@ -58,7 +58,7 @@ módulos e corretoras antes de `api` e `worker` subirem.
 
 ### Primeiro acesso
 
-1. Abra http://localhost:8080 → **Criar conta**.
+1. Abra http://localhost:8181 → **Criar conta**.
 2. Confirme o e-mail pelo link que chega no Mailpit (http://localhost:8025).
 3. Entre e vá em **Integrações → Adicionar**. O formulário mostra o passo a passo para criar
    a chave na Binance com **apenas "Ativar leitura"**.

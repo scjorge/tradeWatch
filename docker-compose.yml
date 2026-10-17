@@ -4,7 +4,7 @@ name: tradewatch
 
 x-backend-env: &backend-env
   APP_ENV: ${APP_ENV:-production}
-  APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+  APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8181}
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   POSTGRES_HOST: db
@@ -26,6 +26,7 @@ x-backend-env: &backend-env
 
 services:
   db:
+    container_name: tradewatch-db
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -42,6 +43,7 @@ services:
     networks: [internal]
 
   migrate:
+    container_name: tradewatch-migrate
     build: { context: ./backend, target: runtime }
     image: tradewatch-backend:latest
     command: ["sh", "-c", "alembic upgrade head && python -m app.cli seed"]
@@ -52,6 +54,7 @@ services:
     restart: "no"
 
   api:
+    container_name: tradewatch-api
     image: tradewatch-backend:latest
     restart: unless-stopped
     environment: *backend-env
@@ -63,6 +66,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   worker:
+    container_name: tradewatch-worker
     image: tradewatch-backend:latest
     restart: unless-stopped
     command: ["python", "-m", "app.worker.main"]
@@ -77,10 +81,11 @@ services:
       disable: true
 
   web:
+    container_name: tradewatch-web
     build: ./frontend
     restart: unless-stopped
     ports:
-      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8181}:8181"
     depends_on: [api]
     networks: [internal, egress]
     security_opt: ["no-new-privileges:true"]
@@ -91,6 +96,7 @@ services:
   # Captura de e-mails para desenvolvimento (UI em http://localhost:8025).
   # Em produção, configure SMTP_* no .env e remova/ignore este serviço.
   mailpit:
+    container_name: tradewatch-mailpit
     image: axllent/mailpit:v1.21
     restart: unless-stopped
     ports:
@@ -98,6 +104,7 @@ services:
     networks: [internal, egress]
 
   backup:
+    container_name: tradewatch-backup
     build: ./scripts/backup
     restart: unless-stopped
     environment:
@@ -117,6 +124,7 @@ services:
 
   # ---- testes: docker compose --profile test run --rm tests
   db-test:
+    container_name: tradewatch-db-test
     image: postgres:16-alpine
     profiles: [test]
     environment:
@@ -131,6 +139,7 @@ services:
     networks: [internal]
 
   tests:
+    container_name: tradewatch-tests
     build: { context: ./backend, target: test }
     profiles: [test]
     environment:
