@@ -40,10 +40,10 @@ def _store(db: Session, rows: list[dict]) -> None:
 
 def refresh_current_prices(db: Session, source: PriceSource, assets: set[str], base_currencies: set[str]) -> int:
     """Busca o ticker e guarda apenas os pares úteis para valorizar os ativos informados."""
-    prices = source.current_prices()
-    now = _minute(utcnow())
     quotes = base_currencies | {BRIDGE}
     wanted = assets | quotes
+    prices = source.current_prices(wanted)
+    now = _minute(utcnow())
     rows = [
         {"base_asset": b, "quote_asset": q, "price": p, "source": TICKER, "price_at": now, "fetched_at": utcnow()}
         for (b, q), p in prices.items()

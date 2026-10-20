@@ -1,7 +1,7 @@
 """Operações compra → venda (função pura).
 
 Cada compra vira um lote do ativo. Cada venda consome os lotes mais antigos do
-mesmo ativo (FIFO, todas as contas do usuário). Cada pedaço (lote × venda) vira
+mesmo ativo **na mesma conta** (FIFO por conta/conexão; contas nunca se misturam). Cada pedaço (lote × venda) vira
 uma linha:
 
   Valor Total da Compra = quantidade × valor unitário          (moeda de cotação)
@@ -127,7 +127,7 @@ def _value_brl(asset: str | None, qty: Decimal, ex: Exec, brl: BrlFn, ref: str =
 
 def build_cycles(execs: list[Exec], brl: BrlFn, currency: str = BRL) -> list[Cycle]:
     """``brl(ativo, instante)`` devolve a cotação do ativo na moeda de referência ``currency``."""
-    lots: dict[str, deque[_Lot]] = defaultdict(deque)
+    lots: dict[tuple[uuid.UUID | None, str], deque[_Lot]] = defaultdict(deque)
     out: list[Cycle] = []
     ref = currency
 
@@ -145,7 +145,7 @@ def build_cycles(execs: list[Exec], brl: BrlFn, currency: str = BRL) -> list[Cyc
                 fee_brl = _value_brl(ex.fee_asset, fee, ex, brl, ref)
                 cost_brl = None if fee_brl is None else cost_brl + fee_brl
             fee_brl = _value_brl(ex.fee_asset, fee, ex, brl, ref) if fee else ZERO
-            lots[ex.base].append(_Lot(ex, gross, net, net, fee, ex.fee_asset, fx, cost_brl, cost_quote, fee_brl))
+            lots[(ex.connection_id, ex.base)].append(_Lot(ex, gross, net, net, fee, ex.fee_asset, fx, cost_brl, cost_quote, fee_brl))
             continue
 
         # Venda: consome lotes FIFO do ativo.
@@ -158,7 +158,7 @@ def build_cycles(execs: list[Exec], brl: BrlFn, currency: str = BRL) -> list[Cyc
             proceeds_brl = None if sell_fee_brl is None else proceeds_brl - sell_fee_brl
 
         remaining = sold
-        queue = lots[ex.base]
+        queue = lots[(ex.connection_id, ex.base)]
         while remaining > EPS:
             lot = queue[0] if queue else None
             if lot is not None:
@@ -172,7 +172,7 @@ def build_cycles(execs: list[Exec], brl: BrlFn, currency: str = BRL) -> list[Cyc
             share = take / sold  # fração desta venda
             out.append(_closed_row(ex, lot, take, share, proceeds_quote, proceeds_brl, sell_fx, fee, sell_fee_brl))
 
-    for asset, queue in lots.items():
+    for (_, asset), queue in lots.items():
         for lot in queue:
             if lot.remaining > EPS:
                 out.append(_open_row(asset, lot))

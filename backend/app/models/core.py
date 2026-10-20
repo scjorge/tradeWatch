@@ -75,6 +75,8 @@ class User(TimestampMixin, Base):
     # Moeda padrão da plataforma: BRL (padrão) ou USDT (dólar).
     base_currency: Mapped[str] = mapped_column(String(16), nullable=False, default="BRL", server_default="BRL")
     cost_method: Mapped[str] = mapped_column(String(16), nullable=False, default="FIFO")
+    # Intervalo da atualização automática de cotações na tela de Operações (segundos; 0 = desligada).
+    price_refresh_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60, server_default="60")
 
     roles: Mapped[list[Role]] = relationship(secondary=user_roles, lazy="selectin")
 

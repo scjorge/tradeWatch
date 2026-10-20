@@ -18,6 +18,7 @@ class UserOut(BaseModel):
     timezone: str
     base_currency: str
     cost_method: str
+    price_refresh_seconds: int
     mfa_enabled: bool
     created_at: datetime
 
@@ -33,6 +34,7 @@ def user_out(user: User) -> UserOut:
         timezone=user.timezone,
         base_currency=user.base_currency,
         cost_method=user.cost_method,
+        price_refresh_seconds=user.price_refresh_seconds,
         mfa_enabled=user.mfa_enabled,
         created_at=user.created_at,
     )

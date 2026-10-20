@@ -121,7 +121,7 @@ class FakePrices(PriceSource):
             ("USDT", "BRL"): Decimal("5"),
         }
 
-    def current_prices(self):
+    def current_prices(self, wanted=None):
         return dict(self.prices)
 
     def historical_price(self, base, quote, at):

@@ -307,15 +307,25 @@ class BinancePriceSource(PriceSource):
     name = "binance"
 
     def __init__(self, client: BinanceClient | None = None):
-        self.client = client or _client()
+        s = get_settings()
+        # Cotação é consulta leve e repetida: falha rápido em vez de segurar o botão por ~20 s.
+        self.client = client or BinanceClient(base_url=s.binance_base_url, timeout=min(s.http_timeout_seconds, 8.0), max_retries=1)
 
     def close(self) -> None:
         self.client.close()
 
-    def current_prices(self) -> dict[tuple[str, str], Decimal]:
-        info = load_exchange_info(self.client)
+    def current_prices(self, wanted: set[str] | None = None) -> dict[tuple[str, str], Decimal]:
         rows = self.client.public("/api/v3/ticker/price")
         out: dict[tuple[str, str], Decimal] = {}
+        if wanted:
+            # Casa os símbolos pelos ativos pedidos; evita baixar o exchangeInfo (vários MB).
+            names = {f"{a}{q}": (a, q) for a in wanted for q in wanted if a != q}
+            for r in rows:  # type: ignore[union-attr]
+                pair = names.get(r["symbol"])
+                if pair:
+                    out[pair] = _d(r["price"])
+            return out
+        info = load_exchange_info(self.client)
         for r in rows:  # type: ignore[union-attr]
             sym = info.get(r["symbol"])
             if sym:

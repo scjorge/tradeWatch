@@ -192,3 +192,24 @@ def test_cycles_in_dollar_use_identity_for_usdt_pairs():
 def test_missing_fx_marks_incomplete():
     [c] = build_cycles([_ex(1, "BUY", "1", "100"), _ex(2, "SELL", "1", "110")], lambda a, t: None)
     assert c.complete is False and c.pnl_brl is None and "Câmbio" in c.note
+
+
+def test_lots_are_not_shared_between_accounts():
+    """Venda na conta B nunca consome lote comprado na conta A."""
+    a, b = uuid.uuid4(), uuid.uuid4()
+    t0 = datetime(2026, 1, 1, 12, tzinfo=UTC)
+
+    def ex(conn, side, qty, price, days):
+        return Exec(id=uuid.uuid4(), connection_id=conn, at=t0 + timedelta(days=days), base="BTC", quote="USDT",
+                    side=side, quantity=D(qty), price=D(price), fee=D(0), fee_asset=None)
+
+    rows = build_cycles([ex(a, "BUY", "1", "100", 0), ex(b, "BUY", "1", "200", 1), ex(b, "SELL", "1", "250", 2)], lambda asset, at: D(1), "USDT")
+    closed = [r for r in rows if r.status == "closed"]
+    opened = [r for r in rows if r.status == "open"]
+    assert len(closed) == 1 and closed[0].buy_connection_id == b and closed[0].sell_connection_id == b
+    assert closed[0].pnl_brl == D(50)  # 250 − 200 (e não 250 − 100 do lote da conta A)
+    assert len(opened) == 1 and opened[0].buy_connection_id == a
+    # venda sem compra na própria conta fica incompleta
+    rows = build_cycles([ex(a, "BUY", "1", "100", 0), ex(b, "SELL", "1", "250", 2)], lambda asset, at: D(1), "USDT")
+    sold = next(r for r in rows if r.status == "closed")
+    assert not sold.complete and sold.pnl_brl is None
