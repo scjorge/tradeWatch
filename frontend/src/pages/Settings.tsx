@@ -18,14 +18,23 @@ interface SessionRow {
   current: boolean;
 }
 
+const PRICE_REFRESH_OPTIONS = [
+  { value: "0", label: "Desligada" },
+  { value: "15", label: "A cada 15 segundos" },
+  { value: "30", label: "A cada 30 segundos" },
+  { value: "60", label: "A cada 1 minuto" },
+  { value: "120", label: "A cada 2 minutos" },
+  { value: "300", label: "A cada 5 minutos" },
+];
+
 const TIMEZONES = ["America/Sao_Paulo", "America/Manaus", "America/Fortaleza", "America/Noronha", "America/New_York", "Europe/Lisbon", "Europe/London", "UTC"];
 
 function Profile() {
   const { user, refresh } = useAuth();
   const qc = useQueryClient();
-  const [form, setForm] = useState({ display_name: "", timezone: "", base_currency: "", cost_method: "" });
+  const [form, setForm] = useState({ display_name: "", timezone: "", base_currency: "", cost_method: "", price_refresh_seconds: 60 });
   useEffect(() => {
-    if (user) setForm({ display_name: user.display_name, timezone: user.timezone, base_currency: user.base_currency, cost_method: user.cost_method });
+    if (user) setForm({ display_name: user.display_name, timezone: user.timezone, base_currency: user.base_currency, cost_method: user.cost_method, price_refresh_seconds: user.price_refresh_seconds });
   }, [user]);
   const save = useMutation({
     mutationFn: () => api<User>("/api/me", { method: "PATCH", body: form }),
@@ -59,6 +68,14 @@ function Profile() {
           ]}
           value={form.cost_method}
           onChange={(v) => v && setForm({ ...form, cost_method: v })}
+        />
+        <Select
+          label="Atualização automática de cotações"
+          description="Com que frequência a tela de Operações atualiza as cotações das posições em aberto, enquanto estiver aberta."
+          data={PRICE_REFRESH_OPTIONS}
+          value={String(form.price_refresh_seconds)}
+          onChange={(v) => v !== null && setForm({ ...form, price_refresh_seconds: Number(v) })}
+          allowDeselect={false}
         />
         <Group justify="flex-end">
           <Button onClick={() => save.mutate()} loading={save.isPending}>Salvar</Button>

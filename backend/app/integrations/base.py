@@ -187,7 +187,8 @@ class PriceSource(abc.ABC):
     name: str
 
     @abc.abstractmethod
-    def current_prices(self) -> dict[tuple[str, str], Decimal]: ...
+    def current_prices(self, wanted: set[str] | None = None) -> dict[tuple[str, str], Decimal]:
+        """Cotações atuais por par (base, cotação). ``wanted`` restringe aos pares formados por esses ativos."""
 
     @abc.abstractmethod
     def historical_price(self, base: str, quote: str, at: datetime) -> Decimal | None: ...

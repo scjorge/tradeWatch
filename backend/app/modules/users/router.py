@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/me", tags=["me"])
 # Moeda padrão da plataforma: real ou dólar (USDT, a referência de dólar nas corretoras de cripto).
 SUPPORTED_BASE_CURRENCIES = ("BRL", "USDT")
 COST_METHODS = ("FIFO", "AVERAGE")
+PRICE_REFRESH_OPTIONS = (0, 15, 30, 60, 120, 300)  # segundos; 0 = desligada
 
 
 class ProfileIn(BaseModel):
@@ -31,6 +32,7 @@ class ProfileIn(BaseModel):
     timezone: str | None = Field(default=None, max_length=64)
     base_currency: str | None = None
     cost_method: str | None = None
+    price_refresh_seconds: int | None = None
 
 
 class PasswordIn(BaseModel):
@@ -56,6 +58,8 @@ def update_me(body: ProfileIn, request: Request, user: User = Depends(current_us
         raise AppError("Moeda não suportada. Use BRL ou USDT (dólar).")
     if "cost_method" in changes and changes["cost_method"] not in COST_METHODS:
         raise AppError("Método de custo inválido.")
+    if "price_refresh_seconds" in changes and changes["price_refresh_seconds"] not in PRICE_REFRESH_OPTIONS:
+        raise AppError("Intervalo de atualização de cotações inválido.")
     recalc = any(k in changes and changes[k] != getattr(user, k) for k in ("base_currency", "cost_method"))
     for k, v in changes.items():
         setattr(user, k, v.strip() if isinstance(v, str) else v)

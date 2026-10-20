@@ -3,7 +3,7 @@ import { notifications } from "@mantine/notifications";
 import { useDebouncedValue } from "@mantine/hooks";
 import { IconDownload, IconRefresh, IconSearch } from "@tabler/icons-react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, qs } from "../api/client";
 import type { CycleSummary, Execution, Paged } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -177,6 +177,7 @@ function MovementsTab() {
 
 export function OperationsPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const currency = useCurrency();
   const globalParams = useFilterParams();
   const [rf, setRf] = useState<ResultFilters>(EMPTY_RESULT_FILTERS);
@@ -188,14 +189,30 @@ export function OperationsPage() {
     placeholderData: keepPreviousData,
   });
 
+  // `silent` = atualização automática: não mostra aviso de sucesso/erro a cada ciclo.
   const refresh = useMutation({
-    mutationFn: () => api("/api/trades/refresh-prices", { method: "POST" }),
-    onSuccess: () => {
-      void qc.invalidateQueries();
-      notifications.show({ color: "teal", message: "Cotações atualizadas." });
+    mutationFn: (_silent: boolean) => api("/api/trades/refresh-prices", { method: "POST" }),
+    onSuccess: (_r, silent) => {
+      // Só as telas que dependem de cotação; invalidar tudo recarregava a página inteira.
+      void qc.invalidateQueries({ predicate: (q) => ["cycles", "cycles-consolidated", "cycles-summary", "cycles-calendar", "dashboard"].includes(String(q.queryKey[0])) });
+      if (!silent) notifications.show({ color: "teal", message: "Cotações atualizadas." });
     },
-    onError: (e: Error) => notifications.show({ color: "red", message: e.message }),
+    onError: (e: Error, silent) => {
+      if (!silent) notifications.show({ color: "red", message: e.message });
+    },
   });
+  const { mutate: refreshPrices, isPending: refreshing } = refresh;
+  const pending = useRef(false);
+  pending.current = refreshing;
+  const runRefresh = useCallback((silent: boolean) => { if (!pending.current) refreshPrices(silent); }, [refreshPrices]);
+
+  // Atualização automática no intervalo definido em Configurações (0 = desligada); pausa com a aba oculta.
+  const autoSeconds = user?.price_refresh_seconds ?? 0;
+  useEffect(() => {
+    if (autoSeconds <= 0) return;
+    const id = window.setInterval(() => { if (!document.hidden) runRefresh(true); }, autoSeconds * 1000);
+    return () => window.clearInterval(id);
+  }, [autoSeconds, runRefresh]);
 
   return (
     <>
@@ -215,8 +232,8 @@ export function OperationsPage() {
                 <Menu.Item component="a" href={`/api/trades/executions.csv${qs(globalParams)}`}>Execuções (CSV)</Menu.Item>
               </Menu.Dropdown>
             </Menu>
-            <Tooltip label="Atualiza as cotações das posições em aberto">
-              <Button size="xs" variant="light" leftSection={<IconRefresh size={14} />} loading={refresh.isPending} onClick={() => refresh.mutate()}>
+            <Tooltip label={autoSeconds > 0 ? `Atualiza as cotações das posições em aberto (automático a cada ${autoSeconds}s; ajuste em Configurações)` : "Atualiza as cotações das posições em aberto"}>
+              <Button size="xs" variant="light" leftSection={<IconRefresh size={14} />} loading={refreshing} onClick={() => runRefresh(false)}>
                 Cotações
               </Button>
             </Tooltip>

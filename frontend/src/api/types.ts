@@ -11,6 +11,7 @@ export interface User {
   timezone: string;
   base_currency: string;
   cost_method: "FIFO" | "AVERAGE";
+  price_refresh_seconds: number;
   mfa_enabled: boolean;
   created_at: string;
 }
