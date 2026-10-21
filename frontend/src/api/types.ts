@@ -124,6 +124,7 @@ export interface HoldingRow {
   price_source: string | null;
   price_at: string | null;
   value: Dec;
+  price_usd: Dec;
 }
 
 export interface Holdings {
@@ -132,7 +133,7 @@ export interface Holdings {
   complete: boolean;
   unpriced_assets: string[];
   rows: HoldingRow[];
-  by_asset: { asset: string; quantity: string; value: Dec; share_pct: number | null; priced: boolean }[];
+  by_asset: { asset: string; quantity: string; value: Dec; price_usd: Dec; share_pct: number | null; priced: boolean }[];
   by_connection: { connection_id: string; name: string; provider: string; value: Dec }[];
 }
 

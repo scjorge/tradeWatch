@@ -4,12 +4,13 @@ import { DatePickerInput } from "@mantine/dates";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, qs } from "../api/client";
-import type { EquityPoint, Holdings } from "../api/types";
+import type { Dec, EquityPoint, Holdings } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { DEFAULT_CURRENCY } from "../lib/currency";
 import { useFilterParams } from "../components/FiltersContext";
 import { FiltersBar } from "../components/FiltersBar";
 import { EmptyState, ErrorAlert, InfoNote, Loading, Money, PageHeader, StatCard } from "../components/common";
+import { useModuleSettings } from "../lib/moduleSettings";
 import { fmtDate, fmtMoney, fmtNumber, fmtPct, signColor } from "../lib/format";
 
 interface CompareResp {
@@ -26,6 +27,10 @@ export function PortfolioPage() {
   const params = useFilterParams();
   const r = user?.base_currency ?? DEFAULT_CURRENCY;
   const balances = useQuery({ queryKey: ["balances", params], queryFn: () => api<Holdings>(`/api/portfolio/balances${qs(params)}`) });
+  const prefs = useModuleSettings("trades");
+  const minUsd = Number(prefs.settings?.hide_price_below_usd ?? 0) || 0;
+  // Ativos sem cotação em dólar continuam visíveis: não dá para afirmar que o saldo é pequeno.
+  const visible = (v: Dec | undefined) => minUsd <= 0 || v == null || Number(v) >= minUsd;
   const history = useQuery({ queryKey: ["history", params], queryFn: () => api<{ items: EquityPoint[] }>(`/api/portfolio/history${qs(params)}`) });
   const [range, setRange] = useState<[Date | null, Date | null]>([null, null]);
   const compare = useQuery({
@@ -66,7 +71,7 @@ export function PortfolioPage() {
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {h.by_asset.map((a) => (
+                  {h.by_asset.filter((a) => visible(a.price_usd)).map((a) => (
                     <Table.Tr key={a.asset}>
                       <Table.Td fw={600}>{a.asset}</Table.Td>
                       <Table.Td ta="right">{fmtNumber(a.quantity)}</Table.Td>
@@ -129,7 +134,7 @@ export function PortfolioPage() {
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {h.rows.map((b) => (
+                  {h.rows.filter((b) => visible(b.price_usd)).map((b) => (
                     <Table.Tr key={`${b.connection_id}-${b.asset}`}>
                       <Table.Td>{b.connection_name}</Table.Td>
                       <Table.Td fw={600}>{b.asset}</Table.Td>

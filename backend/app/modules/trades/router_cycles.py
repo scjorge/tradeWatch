@@ -50,6 +50,7 @@ class CycleFilters:
     max_pct: Decimal | None
     min_days: Decimal | None
     max_days: Decimal | None
+    hide_assets: frozenset[str] = frozenset()  # ativos abaixo do preço unitário mínimo (Configurações)
 
     @property
     def result_only_closed(self) -> bool:
@@ -66,8 +67,35 @@ def cycle_filters(
     max_pct: Decimal | None = None,
     min_days: Decimal | None = Query(None, ge=0),
     max_days: Decimal | None = Query(None, ge=0),
+    user: User = Depends(require_permission(READ)),
+    db: Session = Depends(get_db),
 ) -> CycleFilters:
-    return CycleFilters(status, quote.upper() if quote else None, result, min_pnl, max_pnl, min_pct, max_pct, min_days, max_days)
+    return CycleFilters(
+        status, quote.upper() if quote else None, result, min_pnl, max_pnl, min_pct, max_pct, min_days, max_days, _hidden_assets(db, user)
+    )
+
+
+def _hidden_assets(db: Session, user: User) -> frozenset[str]:
+    """Ativos cuja cotação unitária em dólar está abaixo do mínimo escolhido em Configurações."""
+    from app.models import Module, UserModuleSetting
+
+    row = db.scalar(
+        select(UserModuleSetting).join(Module, Module.id == UserModuleSetting.module_id).where(UserModuleSetting.user_id == user.id, Module.key == "trades")
+    )
+    try:
+        minimum = Decimal(str((row.settings if row else {}).get("hide_price_below_usd") or 0))
+    except Exception:  # noqa: BLE001 - preferência malformada: não oculta nada
+        return frozenset()
+    if minimum <= 0:
+        return frozenset()
+    prices = CurrentPrices(db)
+    assets = db.scalars(select(TradeCycle.asset).where(TradeCycle.user_id == user.id).distinct()).all()
+    out = set()
+    for a in assets:
+        q = prices.get(a, "USDT")
+        if q is not None and q.price < minimum:  # sem cotação: continua visível
+            out.add(a)
+    return frozenset(out)
 
 
 def _query(user: User, f: Filters, cf: CycleFilters):
@@ -83,6 +111,9 @@ def _query(user: User, f: Filters, cf: CycleFilters):
         stmt = stmt.where(C.asset == f.asset)
     if f.q:
         stmt = stmt.where(C.asset.ilike(f"%{f.q.strip()}%"))
+    if cf.hide_assets:
+        # Só ordens ainda não concluídas; o histórico de operações fechadas permanece.
+        stmt = stmt.where(or_(C.status == CycleStatus.CLOSED, C.asset.not_in(cf.hide_assets)))
     if cf.status:
         stmt = stmt.where(C.status.in_(cf.status))
     if cf.quote:

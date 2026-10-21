@@ -1,12 +1,14 @@
 import { Alert, Button, Card, Group, Modal, PasswordInput, Select, SimpleGrid, Stack, Table, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { NumberInput } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { User } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { PageHeader } from "../components/common";
 import { CURRENCY_OPTIONS } from "../lib/currency";
+import { useModuleSettings } from "../lib/moduleSettings";
 import { fmtDate } from "../lib/format";
 
 interface SessionRow {
@@ -81,6 +83,32 @@ function Profile() {
         />
         <Group justify="flex-end">
           <Button onClick={() => save.mutate()} loading={save.isPending}>Salvar</Button>
+        </Group>
+      </Stack>
+    </Card>
+  );
+}
+
+function HideSmallBalances() {
+  const prefs = useModuleSettings("trades");
+  const saved = Number(prefs.settings?.hide_price_below_usd ?? 0) || 0;
+  const [value, setValue] = useState<number | string>(0);
+  useEffect(() => setValue(saved), [saved]);
+  return (
+    <Card withBorder radius="md">
+      <Title order={5} mb="sm">Ativos de baixo valor</Title>
+      <Stack>
+        <NumberInput
+          label="Ocultar ativos com valor unitário menor que (US$)"
+          description="Esconde ativos cujo preço de 1 unidade (cotação de venda) é menor que este valor em dólar, independentemente da quantidade que você tem. Vale em Carteiras e saldos e, em Operações, nas ordens ainda não concluídas (as concluídas permanecem). Use 0 para mostrar todos. Ativos sem cotação continuam visíveis."
+          min={0}
+          decimalScale={2}
+          prefix="US$ "
+          value={value}
+          onChange={setValue}
+        />
+        <Group justify="flex-end">
+          <Button disabled={!prefs.loaded} onClick={() => { prefs.save({ hide_price_below_usd: Number(value) || 0 }); notifications.show({ color: "teal", message: "Preferência salva." }); }}>Salvar</Button>
         </Group>
       </Stack>
     </Card>
@@ -186,6 +214,9 @@ export function SettingsPage() {
       <SimpleGrid cols={{ base: 1, lg: 2 }} mb="md">
         <Profile />
         <ChangePassword />
+      </SimpleGrid>
+      <SimpleGrid cols={{ base: 1, lg: 2 }} mb="md">
+        <HideSmallBalances />
       </SimpleGrid>
       <Sessions />
       <DeleteAccount />

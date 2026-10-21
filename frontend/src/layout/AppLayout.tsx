@@ -1,5 +1,5 @@
 import { ActionIcon, AppShell, Burger, Group, Menu, NavLink, Text, Tooltip, useComputedColorScheme, useMantineColorScheme } from "@mantine/core";
-import { useDisclosure } from "@mantine/hooks";
+import { useDisclosure, useLocalStorage } from "@mantine/hooks";
 import {
   IconBell,
   IconChartCandle,
@@ -37,6 +37,7 @@ const ICONS: Record<string, typeof IconList> = {
 
 export function AppLayout() {
   const [opened, { toggle, close }] = useDisclosure();
+  const [desktopOpened, setDesktopOpened] = useLocalStorage({ key: "sidebar-desktop-open", defaultValue: true });
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -46,11 +47,18 @@ export function AppLayout() {
   const nav = (modules.data ?? []).flatMap((m) => m.nav).sort((a, b) => a.order - b.order);
 
   return (
-    <AppShell header={{ height: 56 }} navbar={{ width: 240, breakpoint: "sm", collapsed: { mobile: !opened } }} padding="md">
+    <AppShell header={{ height: 56 }} navbar={{ width: 240, breakpoint: "sm", collapsed: { mobile: !opened, desktop: !desktopOpened } }} padding="md">
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between">
           <Group gap="xs">
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" aria-label="Abrir menu" />
+            <Burger
+              opened={desktopOpened}
+              onClick={() => setDesktopOpened((v) => !v)}
+              visibleFrom="sm"
+              size="sm"
+              aria-label={desktopOpened ? "Recolher menu" : "Expandir menu"}
+            />
             <img src="/favicon.svg" width={24} height={24} alt="" />
             <Text fw={700}>TradeWatch</Text>
             <Text size="xs" c="dimmed" visibleFrom="sm">

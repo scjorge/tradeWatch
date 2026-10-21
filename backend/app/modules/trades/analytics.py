@@ -53,6 +53,8 @@ def holdings(db: Session, user: User, connection_ids: list[uuid.UUID] | None = N
     for bal, conn in db.execute(stmt).all():
         q = prices.get(bal.asset, r)
         value = bal.total * q.price if q else None
+        qu = prices.get(bal.asset, "USDT")
+        price_usd = qu.price if qu else None
         if value is not None:
             total += value
         else:
@@ -71,9 +73,10 @@ def holdings(db: Session, user: User, connection_ids: list[uuid.UUID] | None = N
                 "price_source": q.source if q else None,
                 "price_at": q.at if q else None,
                 "value": _f(value),
+                "price_usd": _f(price_usd),
             }
         )
-        a = by_asset.setdefault(bal.asset, {"asset": bal.asset, "quantity": ZERO, "value": ZERO, "priced": True})
+        a = by_asset.setdefault(bal.asset, {"asset": bal.asset, "quantity": ZERO, "value": ZERO, "price_usd": _f(price_usd), "priced": True})
         a["quantity"] += bal.total
         if value is None:
             a["priced"] = False
