@@ -40,6 +40,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    env_file:
+      - .env
     networks: [internal]
 
   migrate:
@@ -82,7 +84,10 @@ services:
 
   web:
     container_name: tradewatch-web
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
     restart: unless-stopped
     ports:
       - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8181}:8181"

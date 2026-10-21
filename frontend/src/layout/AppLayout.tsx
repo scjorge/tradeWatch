@@ -54,7 +54,7 @@ export function AppLayout() {
             <img src="/favicon.svg" width={24} height={24} alt="" />
             <Text fw={700}>TradeWatch</Text>
             <Text size="xs" c="dimmed" visibleFrom="sm">
-              somente leitura
+              v{__APP_VERSION__}
             </Text>
           </Group>
           <Group gap="xs">

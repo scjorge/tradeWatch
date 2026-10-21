@@ -4,6 +4,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
+ARG APP_VERSION
+ENV APP_VERSION=$APP_VERSION
 RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime

@@ -3,7 +3,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useModuleSettings } from "../lib/moduleSettings";
 import { Loading } from "./common";
 
-export type Period = "month" | "prevmonth" | "ytd" | "7d" | "30d" | "90d" | "1y" | "all" | "custom";
+export type Period = "today" | "month" | "prevmonth" | "ytd" | "7d" | "30d" | "90d" | "1y" | "all" | "custom";
 
 export interface GlobalFilters {
   period: Period;
@@ -18,7 +18,7 @@ export interface GlobalFilters {
 export const DEFAULT_FILTERS: GlobalFilters = { period: "90d", range: [null, null], connectionIds: [], asset: "", side: "", market: "", provider: "" };
 const PREF_KEY = "global_filters";
 const LEGACY_LOCAL_KEY = "tw.filters";
-const PERIODS: Period[] = ["month", "prevmonth", "ytd", "7d", "30d", "90d", "1y", "all", "custom"];
+const PERIODS: Period[] = ["today", "month", "prevmonth", "ytd", "7d", "30d", "90d", "1y", "all", "custom"];
 
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const fromYmd = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T00:00:00`) : null);
@@ -112,6 +112,7 @@ export function toParams(f: GlobalFilters, now = new Date()): Record<string, unk
   let end: Date | null = null;
   const days = { "7d": 7, "30d": 30, "90d": 90, "1y": 365 } as Record<string, number>;
   if (f.period in days) start = new Date(now.getTime() - days[f.period] * 86400_000);
+  if (f.period === "today") start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (f.period === "month") start = new Date(now.getFullYear(), now.getMonth(), 1);
   if (f.period === "prevmonth") {
     start = new Date(now.getFullYear(), now.getMonth() - 1, 1);

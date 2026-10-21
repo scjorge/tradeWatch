@@ -88,7 +88,7 @@ build() {
 }
 
 build tradewatch-backend ./backend --target runtime
-build tradewatch-web ./frontend
+build tradewatch-web ./frontend --build-arg "APP_VERSION=$TAG"
 build tradewatch-backup ./scripts/backup
 
 echo

@@ -20,6 +20,7 @@ export function FiltersBar({ showSide = true }: { showSide?: boolean }) {
           value={filters.period}
           onChange={(v) => setFilters({ period: v as Period })}
           data={[
+            { label: "Hoje", value: "today" },
             { label: "Este mês", value: "month" },
             { label: "Mês anterior", value: "prevmonth" },
             { label: "30d", value: "30d" },

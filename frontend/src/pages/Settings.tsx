@@ -20,6 +20,8 @@ interface SessionRow {
 
 const PRICE_REFRESH_OPTIONS = [
   { value: "0", label: "Desligada" },
+  { value: "5", label: "A cada 5 segundos" },
+  { value: "10", label: "A cada 10 segundos" },
   { value: "15", label: "A cada 15 segundos" },
   { value: "30", label: "A cada 30 segundos" },
   { value: "60", label: "A cada 1 minuto" },

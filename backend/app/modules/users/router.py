@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/me", tags=["me"])
 # Moeda padrão da plataforma: real ou dólar (USDT, a referência de dólar nas corretoras de cripto).
 SUPPORTED_BASE_CURRENCIES = ("BRL", "USDT")
 COST_METHODS = ("FIFO", "AVERAGE")
-PRICE_REFRESH_OPTIONS = (0, 15, 30, 60, 120, 300)  # segundos; 0 = desligada
+PRICE_REFRESH_OPTIONS = (0, 5, 10, 15, 30, 60, 120, 300)  # segundos; 0 = desligada
 
 
 class ProfileIn(BaseModel):
