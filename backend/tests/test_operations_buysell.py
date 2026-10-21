@@ -74,7 +74,7 @@ def test_filters_summary_and_calendar(make_user, db):
     assert next(d for d in cal["days"] if d["date"] == "2026-01-04")["pnl_brl"] == "50"
 
     csv_text = api.get("/api/trades/cycles.csv").text
-    assert csv_text.splitlines()[0].startswith("Status;Criptomoeda;Moeda;Conta;Data Compra;Quant. a Comprar")
+    assert csv_text.splitlines()[0].startswith("Status;Criptomoeda;Moeda;Conta;Data da Compra;Quant. a Comprar")
     assert len(csv_text.splitlines()) == 4
     assert "Taxa BRL" in csv_text.splitlines()[0]
 
@@ -213,3 +213,22 @@ def test_lots_are_not_shared_between_accounts():
     rows = build_cycles([ex(a, "BUY", "1", "100", 0), ex(b, "SELL", "1", "250", 2)], lambda asset, at: D(1), "USDT")
     sold = next(r for r in rows if r.status == "closed")
     assert not sold.complete and sold.pnl_brl is None
+
+
+def test_sell_prefers_lot_with_same_quantity():
+    """Compra de 100,5 (taxa 0,1005 em GTC) e venda de 100,4: formam o par, sem tocar lotes antigos."""
+    c = uuid.uuid4()
+    t0 = datetime(2026, 1, 1, 12, tzinfo=UTC)
+
+    def ex(side, qty, price, days, fee="0", fee_asset=None):
+        return Exec(id=uuid.uuid4(), connection_id=c, at=t0 + timedelta(days=days), base="GTC", quote="USDT",
+                    side=side, quantity=D(qty), price=D(price), fee=D(fee), fee_asset=fee_asset)
+
+    rows = build_cycles(
+        [ex("BUY", "1386.1", "0.32782", 0, "1.3861", "GTC"), ex("BUY", "100.5", "0.30768", 1, "0.1005", "GTC"), ex("SELL", "100.4", "0.31175", 2)],
+        lambda asset, at: D(1), "USDT",
+    )
+    closed = [r for r in rows if r.status == "closed"]
+    assert len(closed) == 1 and closed[0].buy_price == D("0.30768") and closed[0].buy_quantity == D("100.5")
+    opened = [r for r in rows if r.status == "open"]
+    assert len(opened) == 1 and opened[0].buy_price == D("0.32782")

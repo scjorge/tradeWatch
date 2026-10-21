@@ -49,7 +49,16 @@ def refresh_current_prices(db: Session, source: PriceSource, assets: set[str], b
         for (b, q), p in prices.items()
         if (b in wanted and q in quotes) or (q in wanted and b in quotes)
     ]
-    _store(db, rows)
+    if rows:
+        # Ticker é "o preço agora": numa nova leitura dentro do mesmo minuto, o valor mais recente vence
+        # (com on_conflict_do_nothing, atualizar a cada 5-10 s repetia o preço do início do minuto).
+        stmt = insert(AssetPrice).values(rows)
+        db.execute(
+            stmt.on_conflict_do_update(
+                constraint="uq_asset_prices_point",
+                set_={"price": stmt.excluded.price, "fetched_at": stmt.excluded.fetched_at},
+            )
+        )
     db.commit()
     return len(rows)
 

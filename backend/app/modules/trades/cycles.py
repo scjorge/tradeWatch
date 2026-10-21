@@ -1,7 +1,8 @@
 """Operações compra → venda (função pura).
 
 Cada compra vira um lote do ativo. Cada venda consome os lotes mais antigos do
-mesmo ativo **na mesma conta** (FIFO por conta/conexão; contas nunca se misturam). Cada pedaço (lote × venda) vira
+mesmo ativo **na mesma conta** (FIFO por conta/conexão; contas nunca se misturam), exceto que uma venda de
+quantidade igual à de um lote em aberto casa primeiro com esse lote. Cada pedaço (lote × venda) vira
 uma linha:
 
   Valor Total da Compra = quantidade × valor unitário          (moeda de cotação)
@@ -29,6 +30,7 @@ from decimal import Decimal
 
 ZERO = Decimal(0)
 EPS = Decimal("1e-12")
+SAME_QTY_TOLERANCE = Decimal("0.002")  # 0,2%: cobre taxa e arredondamento da corretora
 BRL = "BRL"
 
 BrlFn = Callable[[str, datetime], Decimal | None]
@@ -159,6 +161,15 @@ def build_cycles(execs: list[Exec], brl: BrlFn, currency: str = BRL) -> list[Cyc
 
         remaining = sold
         queue = lots[(ex.connection_id, ex.base)]
+        # Venda de mesma quantidade de um lote (compra e venda da mesma posição, a diferença é a taxa
+        # arredondada): casa com ele, mesmo que haja lotes mais antigos. Senão, FIFO.
+        pick = next((l for l in queue if l.remaining > EPS and abs(l.remaining - sold) <= sold * SAME_QTY_TOLERANCE), None)
+        if pick is not None:
+            take = min(pick.remaining, sold)
+            queue.remove(pick)
+            pick.remaining = ZERO  # o resíduo (arredondamento da taxa) não vira linha própria
+            out.append(_closed_row(ex, pick, take, Decimal(1), proceeds_quote, proceeds_brl, sell_fx, fee, sell_fee_brl))
+            continue
         while remaining > EPS:
             lot = queue[0] if queue else None
             if lot is not None:

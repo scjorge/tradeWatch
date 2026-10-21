@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Group, PasswordInput, Select, SimpleGrid, Stack, Table, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Button, Card, Group, Modal, PasswordInput, Select, SimpleGrid, Stack, Table, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -112,6 +112,43 @@ function ChangePassword() {
   );
 }
 
+function DeleteAccount() {
+  const { logout } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const del = useMutation({
+    mutationFn: () => api("/api/me/delete", { method: "POST", body: { password } }),
+    onSuccess: () => void logout().catch(() => window.location.assign("/")),
+    onError: (e: Error) => setError(e.message),
+  });
+  const close = () => { setOpen(false); setPassword(""); setError(null); };
+  return (
+    <Card withBorder radius="md" mt="md" style={{ borderColor: "var(--mantine-color-red-6)" }}>
+      <Group justify="space-between" wrap="nowrap">
+        <div>
+          <Title order={5}>Excluir conta</Title>
+          <Text size="sm" c="dimmed">Apaga seu usuário e todos os dados: integrações, operações, resultados e notificações. Não há como desfazer.</Text>
+        </div>
+        <Button color="red" variant="light" onClick={() => setOpen(true)}>Excluir minha conta</Button>
+      </Group>
+      <Modal opened={open} onClose={close} title="Excluir conta definitivamente" centered>
+        <form onSubmit={(e) => { e.preventDefault(); setError(null); del.mutate(); }}>
+          <Stack>
+            <Alert color="red">Todos os seus dados serão apagados permanentemente. As chaves da Binance cadastradas serão removidas daqui (revogue-as também na Binance).</Alert>
+            {error && <Alert color="red" variant="outline">{error}</Alert>}
+            <PasswordInput label="Confirme sua senha" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.currentTarget.value)} data-autofocus />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={close}>Cancelar</Button>
+              <Button type="submit" color="red" loading={del.isPending} disabled={!password}>Excluir definitivamente</Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    </Card>
+  );
+}
+
 function Sessions() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -151,6 +188,7 @@ export function SettingsPage() {
         <ChangePassword />
       </SimpleGrid>
       <Sessions />
+      <DeleteAccount />
     </>
   );
 }

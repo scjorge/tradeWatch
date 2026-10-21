@@ -5,12 +5,13 @@ import re
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit
+from app.core.security import verify_password
 from app.core.deps import current_user, get_current_session
 from app.core.errors import AppError, NotFound
 from app.db import get_db
@@ -33,6 +34,10 @@ class ProfileIn(BaseModel):
     base_currency: str | None = None
     cost_method: str | None = None
     price_refresh_seconds: int | None = None
+
+
+class DeleteAccountIn(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
 
 
 class PasswordIn(BaseModel):
@@ -88,6 +93,34 @@ def change_password(
 ):
     user = db.get(User, sess.user_id)
     auth_service.change_password(db, user, body.current_password, body.new_password, sess.id, request)
+
+
+@router.post("/delete", status_code=204)
+def delete_account(
+    body: DeleteAccountIn,
+    request: Request,
+    sess: UserSession = Depends(get_current_session),
+    db: Session = Depends(get_db),
+):
+    """Exclui a própria conta e todos os dados (conexões, operações, notificações). Exige a senha."""
+    user = db.get(User, sess.user_id)
+    if not verify_password(user.password_hash, body.password):
+        audit(db, "user.delete_failed", user_id=user.id, request=request)
+        db.commit()
+        raise AppError("Senha incorreta.", code="invalid_password")
+    if "admin" in user.role_keys:
+        admins = db.scalar(select(func.count()).select_from(User).where(User.is_active.is_(True), User.roles.any(key="admin")))
+        if admins <= 1:
+            raise AppError("Você é o único administrador. Atribua o papel a outro usuário antes de excluir a conta.")
+    uid = user.id
+    # Credenciais, execuções, ciclos etc. saem em cascata (FK ON DELETE CASCADE).
+    db.expunge_all()
+    db.execute(delete(User).where(User.id == uid))
+    audit(db, "user.deleted", user_id=None, request=request, deleted_user_id=str(uid))
+    db.commit()
+    response = Response(status_code=204)
+    auth_service.clear_session_cookies(response)
+    return response
 
 
 @router.get("/sessions")

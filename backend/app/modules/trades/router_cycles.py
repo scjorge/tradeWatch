@@ -485,10 +485,10 @@ def _header(h: str, user: User) -> str:
 
 
 EXPORT_COLUMNS = [
-    ("Status", "status_label"), ("Criptomoeda", "asset"), ("Moeda", "quote"), ("Conta", "account"), ("Data Compra", "buy_at"),
+    ("Status", "status_label"), ("Criptomoeda", "asset"), ("Moeda", "quote"), ("Conta", "account"), ("Data da Compra", "buy_at"),
     ("Quant. a Comprar", "buy_quantity"), ("Valor Unitário Compra", "buy_price"), ("Taxa Transação", "buy_fee"),
     ("Câmbio Compra", "buy_fx"), ("Valor Unitário Compra BRL", "buy_unit_brl"), ("Valor Total da Compra", "buy_total"),
-    ("Valor Compra BRL", "buy_total_brl"), ("Data Venda", "sell_at"), ("Quant. a Vender", "sell_quantity"),
+    ("Valor Compra BRL", "buy_total_brl"), ("Data da Venda.", "sell_at"), ("Quant. a Vender", "sell_quantity"),
     ("Valor Unitário Venda", "sell_price"), ("Taxa Venda", "sell_fee"), ("Taxa BRL", "fees_brl"), ("Câmbio Venda", "sell_fx"),
     ("Valor Unitário Venda BRL", "sell_unit_brl"), ("Valor Total a Venda", "sell_total"), ("Valor Venda BRL", "sell_total_brl"),
     ("Lucro / Prejuízo", "pnl_brl"), ("% Lucro / Prejuízo", "pnl_pct"), ("Dias", "holding_days"), ("Observação", "note"),

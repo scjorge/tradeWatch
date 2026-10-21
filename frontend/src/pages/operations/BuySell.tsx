@@ -18,9 +18,9 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import { MonthPickerInput } from "@mantine/dates";
-import { IconChevronLeft, IconChevronRight, IconFilterOff } from "@tabler/icons-react";
+import { IconChevronLeft, IconChevronRight, IconFilterOff, IconGripVertical } from "@tabler/icons-react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { api, qs } from "../../api/client";
 import type { CycleRow, CycleSummary, Paged } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
@@ -181,7 +181,7 @@ function columnsFor(cur: string): Col[] {
   },
   { key: "quote", label: "Moeda", cell: (c) => `${c.quote ?? "—"}${c.sell_quote && c.sell_quote !== c.quote ? ` → ${c.sell_quote}` : ""}` },
   { key: "account", label: "Conta", cell: (c) => <Text size="xs" truncate maw={130}>{c.account ?? "—"}</Text> },
-  { key: "buy_at", label: "Data Compra", sort: "buy_at", cell: (c, d) => d(c.buy_at) },
+  { key: "buy_at", label: "Data da Compra", sort: "buy_at", cell: (c, d) => d(c.buy_at) },
   { key: "buy_quantity", label: "Quant. a Comprar", right: true, cell: (c) => fmtNumber(c.buy_quantity) },
   { key: "buy_price", label: "Valor Unit. Compra", right: true, cell: (c) => fmtNumber(c.buy_price) },
   { key: "buy_fee", label: "Taxa", right: true, cell: (c) => (c.buy_fee && Number(c.buy_fee) ? `${fmtNumber(c.buy_fee)} ${c.buy_fee_asset ?? ""}` : "—") },
@@ -199,7 +199,7 @@ function columnsFor(cur: string): Col[] {
   { key: "buy_unit_brl", label: `Unit. Compra ${cur}`, right: true, cell: (c) => fmtNumber(c.buy_unit_brl) },
   { key: "buy_total", label: "Total da Compra", right: true, cell: (c) => fmtNumber(c.buy_total) },
   { key: "buy_total_brl", label: `Compra ${cur}`, sort: "buy_total_brl", right: true, cell: (c) => fmtMoney(c.buy_total_brl, cur) },
-  { key: "sell_at", label: "Data Venda", sort: "sell_at", cell: (c, d) => d(c.sell_at) },
+  { key: "sell_at", label: "Data da Venda.", sort: "sell_at", cell: (c, d) => d(c.sell_at) },
   { key: "sell_quantity", label: "Quant. a Vender", right: true, cell: (c) => (c.status === "buy_order" ? "—" : fmtNumber(c.sell_quantity)) },
   { key: "sell_price", label: "Valor Unit. Venda", right: true, estimable: true, cell: (c) => fmtNumber(c.sell_price) },
   { key: "sell_fee", label: "Taxa Venda", right: true, cell: (c) => (c.sell_fee && Number(c.sell_fee) ? `${fmtNumber(c.sell_fee)} ${c.sell_fee_asset ?? ""}` : "—") },
@@ -271,12 +271,28 @@ export function CyclesTable({ params, consolidated = false }: { params: Record<s
     placeholderData: keepPreviousData,
   });
   const tz = user?.timezone;
-  const d = (s: string | null) => (s ? fmtDate(s, tz, false) : "—");
+  const d = (s: string | null) => (s ? fmtDate(s, tz) : "—");
 
   const saved = prefs.settings?.[prefKey];
   const known = new Set(columns.map((c) => c.key));
   const visibleKeys = Array.isArray(saved) ? (saved as string[]).filter((k) => known.has(k)) : defaults;
-  const visible = columns.filter((c) => visibleKeys.includes(c.key));
+  // Ordem de exibição = ordem salva (arrastar os cabeçalhos para reordenar).
+  const byKey = new Map(columns.map((c) => [c.key, c]));
+  const visible = visibleKeys.map((k) => byKey.get(k)).filter((c): c is Col => !!c);
+  const dragRef = useRef<string | null>(null);
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [overKey, setOverKey] = useState<string | null>(null);
+  const endDrag = () => { dragRef.current = null; setDragKey(null); setOverKey(null); };
+  const moveColumn = (from: string, to: string) => {
+    if (from === to) return;
+    const keys = visible.map((c) => c.key);
+    const fromIdx = keys.indexOf(from);
+    const toIdx = keys.indexOf(to);
+    keys.splice(fromIdx, 1);
+    // Após remover a origem, inserir em toIdx deixa a coluna depois da alvo (ao ir para a direita) ou antes (para a esquerda).
+    keys.splice(toIdx, 0, from);
+    prefs.save({ [prefKey]: keys });
+  };
 
   if (q.isLoading || !prefs.loaded) return <Loading />;
   if (!q.data?.total)
@@ -298,17 +314,49 @@ export function CyclesTable({ params, consolidated = false }: { params: Record<s
           <Table.Thead>
             <Table.Tr>
               {visible.map((col) => (
-                <Table.Th key={col.key} ta={col.right ? "right" : undefined} style={{ whiteSpace: "nowrap" }}>
-                  {col.sort ? (
-                    <UnstyledButton onClick={() => setSort((s) => ({ key: col.sort!, dir: s.key === col.sort && s.dir === "desc" ? "asc" : "desc" }))}>
-                      <Text fw={600} size="xs">
-                        {col.label}
-                        {sort.key === col.sort ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
-                      </Text>
-                    </UnstyledButton>
-                  ) : (
-                    <Text fw={600} size="xs">{col.label}</Text>
-                  )}
+                <Table.Th
+                  key={col.key}
+                  ta={col.right ? "right" : undefined}
+                  onDragOver={(e) => { if (dragRef.current) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setOverKey(col.key); } }}
+                  onDrop={(e) => { e.preventDefault(); if (dragRef.current) moveColumn(dragRef.current, col.key); endDrag(); }}
+                  style={{
+                    whiteSpace: "nowrap",
+                    opacity: dragKey === col.key ? 0.4 : 1,
+                    boxShadow: overKey === col.key && dragKey && dragKey !== col.key ? "inset 3px 0 0 var(--mantine-color-blue-6)" : undefined,
+                  }}
+                >
+                  <Group gap={4} wrap="nowrap" justify={col.right ? "flex-end" : "flex-start"}>
+                    {/* A alça é o único elemento arrastável: botões dentro de um item arrastável quebram o arrasto em alguns navegadores. */}
+                    <span
+                      draggable
+                      role="button"
+                      aria-label={`Mover coluna ${col.label}`}
+                      title="Arraste para reordenar"
+                      onDragStart={(e) => {
+                        dragRef.current = col.key;
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", col.key);
+                        const th = e.currentTarget.closest("th");
+                        if (th) e.dataTransfer.setDragImage(th, 10, 10);
+                        // Estado visual só depois do início do arrasto: mexer no DOM dentro do dragstart cancela o arrasto no Chrome.
+                        window.setTimeout(() => setDragKey(col.key), 0);
+                      }}
+                      onDragEnd={endDrag}
+                      style={{ cursor: "grab", display: "inline-flex", opacity: 0.5 }}
+                    >
+                      <IconGripVertical size={12} />
+                    </span>
+                    {col.sort ? (
+                      <UnstyledButton onClick={() => setSort((s) => ({ key: col.sort!, dir: s.key === col.sort && s.dir === "desc" ? "asc" : "desc" }))}>
+                        <Text fw={600} size="xs">
+                          {col.label}
+                          {sort.key === col.sort ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
+                        </Text>
+                      </UnstyledButton>
+                    ) : (
+                      <Text fw={600} size="xs">{col.label}</Text>
+                    )}
+                  </Group>
                 </Table.Th>
               ))}
             </Table.Tr>

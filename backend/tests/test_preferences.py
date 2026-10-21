@@ -46,3 +46,13 @@ def test_global_filters_saved_in_core_module(make_user):
     filters = {"period": "custom", "range": ["2026-01-05", "2026-01-20"], "connectionIds": [], "asset": "BTC", "side": "", "market": "", "provider": ""}
     assert api.patch("/api/me/modules/core/settings", json={"settings": {"global_filters": filters}}).status_code == 200
     assert api.get("/api/me/modules/core/settings").json()["settings"]["global_filters"] == filters
+
+
+def test_delete_own_account_requires_password(make_user):
+    api = make_user("apagar@example.com")
+    assert api.post("/api/me/delete", json={"password": "errada"}).status_code == 400
+    assert api.get("/api/me").status_code == 200
+    assert api.post("/api/me/delete", json={"password": PASSWORD}).status_code == 204
+    assert api.get("/api/me").status_code == 401
+    other = Api(TestClient(__import__("app.main", fromlist=["app"]).app))
+    assert other.c.post("/api/auth/login", json={"email": "apagar@example.com", "password": PASSWORD}).status_code in (400, 401)

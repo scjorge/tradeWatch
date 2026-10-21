@@ -6,7 +6,9 @@ export interface ColumnOption {
   label: string;
 }
 
-/** Escolha das colunas visíveis de uma tabela. Ao menos uma coluna fica sempre marcada. */
+/** Escolha das colunas visíveis de uma tabela. Ao menos uma coluna fica sempre marcada.
+ * ``visible`` está na ordem de exibição (definida arrastando os cabeçalhos); ao marcar uma coluna
+ * ela entra na posição original dela, sem desfazer a ordem escolhida. */
 export function ColumnPicker({
   columns,
   visible,
@@ -20,7 +22,13 @@ export function ColumnPicker({
 }) {
   const set = new Set(visible);
   const toggle = (key: string, on: boolean) => {
-    const next = columns.map((c) => c.key).filter((k) => (k === key ? on : set.has(k)));
+    let next: string[];
+    if (!on) next = visible.filter((k) => k !== key);
+    else {
+      const all = columns.map((c) => c.key);
+      const after = visible.findIndex((k) => all.indexOf(k) > all.indexOf(key));
+      next = after < 0 ? [...visible, key] : [...visible.slice(0, after), key, ...visible.slice(after)];
+    }
     if (next.length) onChange(next);
   };
   return (
